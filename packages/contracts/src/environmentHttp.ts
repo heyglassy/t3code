@@ -356,6 +356,32 @@ export const EnvironmentCloudPreferencesRequest = Schema.Struct({
 });
 export type EnvironmentCloudPreferencesRequest = typeof EnvironmentCloudPreferencesRequest.Type;
 
+export const MobileRelayBrokerSessionRequest = Schema.Struct({
+  clerkToken: Schema.NullOr(TrimmedNonEmptyString),
+});
+export type MobileRelayBrokerSessionRequest = typeof MobileRelayBrokerSessionRequest.Type;
+
+export const MobileRelayBrokerCredentialRequest = Schema.Struct({
+  proofKeyThumbprint: TrimmedNonEmptyString,
+  deviceId: Schema.optionalKey(TrimmedNonEmptyString),
+  label: Schema.optionalKey(TrimmedNonEmptyString),
+});
+export type MobileRelayBrokerCredentialRequest = typeof MobileRelayBrokerCredentialRequest.Type;
+
+export const MobileRelayBrokerCredentialResult = Schema.Struct({
+  accountId: TrimmedNonEmptyString,
+  accessToken: TrimmedNonEmptyString,
+  expiresAt: Schema.DateTimeUtc,
+});
+export type MobileRelayBrokerCredentialResult = typeof MobileRelayBrokerCredentialResult.Type;
+
+export const MobileRelayBrokerTokenResult = Schema.Struct({
+  accountId: TrimmedNonEmptyString,
+  clerkToken: TrimmedNonEmptyString,
+  expiresAt: Schema.DateTimeUtc,
+});
+export type MobileRelayBrokerTokenResult = typeof MobileRelayBrokerTokenResult.Type;
+
 export const AuthPairingLinkRevokeResult = Schema.Struct({
   revoked: Schema.Boolean,
 });
@@ -525,6 +551,37 @@ export class EnvironmentConnectHttpApi extends HttpApiGroup.make("connect")
       headers: OptionalBearerHeaders,
       payload: EnvironmentCloudPreferencesRequest,
       success: EnvironmentCloudLinkStateResult,
+      error: EnvironmentHttpCloudErrors,
+    }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.post(
+      "syncMobileRelayBrokerSession",
+      "/api/connect/mobile-relay-broker/session",
+      {
+        headers: OptionalBearerHeaders,
+        payload: MobileRelayBrokerSessionRequest,
+        success: Schema.Struct({ ok: Schema.Boolean }),
+        error: EnvironmentHttpCloudErrors,
+      },
+    ).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.post(
+      "issueMobileRelayBrokerCredential",
+      "/api/connect/mobile-relay-broker/credential",
+      {
+        headers: OptionalBearerHeaders,
+        payload: MobileRelayBrokerCredentialRequest,
+        success: MobileRelayBrokerCredentialResult,
+        error: EnvironmentHttpCloudErrors,
+      },
+    ).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.get("mobileRelayBrokerToken", "/api/connect/mobile-relay-broker/token", {
+      headers: OptionalBearerHeaders,
+      success: MobileRelayBrokerTokenResult,
       error: EnvironmentHttpCloudErrors,
     }).middleware(EnvironmentAuthenticatedAuth),
   )

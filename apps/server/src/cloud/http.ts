@@ -9,6 +9,7 @@ import {
   EnvironmentHttpApi,
   EnvironmentHttpBadRequestError,
   EnvironmentHttpConflictError,
+  EnvironmentHttpForbiddenError,
   EnvironmentHttpInternalServerError,
   EnvironmentHttpUnauthorizedError,
 } from "@t3tools/contracts";
@@ -58,6 +59,7 @@ import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import { requireEnvironmentScope } from "../auth/http.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as ManagedEndpointRuntime from "./ManagedEndpointRuntime.ts";
+import * as MobileRelayBroker from "./MobileRelayBroker.ts";
 import {
   CLOUD_ENDPOINT_RUNTIME_CONFIG,
   CLOUD_LINKED_USER_ID,
@@ -84,6 +86,8 @@ const CLOUD_HEALTH_NONCE_PREFIX = "cloud-health-nonce-";
 const CLOUD_HEALTH_JTI_PREFIX = "cloud-health-jti-";
 const CLOUD_PROOF_MAX_LIFETIME_SECONDS = 5 * 60;
 const CLOUD_PROOF_CLOCK_SKEW_SECONDS = 60;
+const MOBILE_RELAY_BROKER_SUBJECT = "mobile-relay-broker";
+const MOBILE_RELAY_BROKER_SESSION_TTL = Duration.days(365);
 const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "::1", "localhost"]);
 const CLOUD_CREDENTIAL_RESPONSE_HEADERS = {
   "cache-control": "no-store",
@@ -1019,12 +1023,89 @@ export const connectHttpApiLayer = HttpApiBuilder.group(
   "connect",
   Effect.fnUntraced(function* (handlers) {
     const dependencies = yield* cloudHttpDependencies;
+    const mobileRelayBroker = yield* MobileRelayBroker.MobileRelayBroker;
     return handlers
       .handle("linkProof", ({ payload }) => cloudLinkProofHandler(dependencies, payload))
       .handle("relayConfig", ({ payload }) => cloudRelayConfigHandler(dependencies, payload))
       .handle("linkState", () => cloudLinkStateHandler(dependencies))
       .handle("unlink", () => cloudUnlinkHandler(dependencies))
       .handle("preferences", ({ payload }) => cloudPreferencesHandler(dependencies, payload))
+      .handle(
+        "syncMobileRelayBrokerSession",
+        Effect.fn("environment.cloud.syncMobileRelayBrokerSession")(function* ({ payload }) {
+          yield* requireEnvironmentScope(AuthRelayWriteScope);
+          yield* mobileRelayBroker
+            .update(payload.clerkToken)
+            .pipe(
+              Effect.mapError(
+                (error) => new EnvironmentHttpBadRequestError({ message: error.message }),
+              ),
+            );
+          yield* appendCloudCredentialResponseHeaders;
+          return { ok: true };
+        }),
+      )
+      .handle(
+        "issueMobileRelayBrokerCredential",
+        Effect.fn("environment.cloud.issueMobileRelayBrokerCredential")(function* ({ payload }) {
+          yield* requireEnvironmentScope(AuthRelayReadScope);
+          const brokerSession = yield* mobileRelayBroker.current.pipe(
+            Effect.mapError(
+              (error) => new EnvironmentHttpConflictError({ message: error.message }),
+            ),
+          );
+          yield* validateLinkedCloudUser({
+            secrets: dependencies.secrets,
+            cloudUserId: brokerSession.accountId,
+          }).pipe(
+            Effect.catchIf(EnvironmentAuth.isServerAuthInternalError, (error) =>
+              failEnvironmentCloudInternalError(error.message)(error),
+            ),
+          );
+          const issued = yield* dependencies.environmentAuth
+            .issueDpopSession({
+              ttl: MOBILE_RELAY_BROKER_SESSION_TTL,
+              subject: MOBILE_RELAY_BROKER_SUBJECT,
+              scopes: [AuthRelayReadScope],
+              proofKeyThumbprint: payload.proofKeyThumbprint,
+              ...(payload.label ? { label: payload.label } : {}),
+              ...(payload.deviceId ? { deviceId: payload.deviceId } : {}),
+            })
+            .pipe(
+              Effect.catchIf(EnvironmentAuth.isServerAuthInternalError, (error) =>
+                failEnvironmentCloudInternalError(error.message)(error),
+              ),
+            );
+          yield* appendCloudCredentialResponseHeaders;
+          return {
+            accountId: brokerSession.accountId,
+            accessToken: issued.token,
+            expiresAt: issued.expiresAt,
+          };
+        }),
+      )
+      .handle(
+        "mobileRelayBrokerToken",
+        Effect.fn("environment.cloud.mobileRelayBrokerToken")(function* () {
+          const principal = yield* requireEnvironmentScope(AuthRelayReadScope);
+          if (principal.subject !== MOBILE_RELAY_BROKER_SUBJECT || !principal.proofKeyThumbprint) {
+            return yield* new EnvironmentHttpForbiddenError({
+              message: "A device-bound GlassyCode Mobile broker credential is required.",
+            });
+          }
+          const brokerSession = yield* mobileRelayBroker.current.pipe(
+            Effect.mapError(
+              (error) => new EnvironmentHttpConflictError({ message: error.message }),
+            ),
+          );
+          yield* appendCloudCredentialResponseHeaders;
+          return {
+            accountId: brokerSession.accountId,
+            clerkToken: brokerSession.clerkToken,
+            expiresAt: brokerSession.expiresAt,
+          };
+        }),
+      )
       .handle("health", ({ payload }) => cloudEnvironmentHealthHandler(dependencies, payload))
       .handle("mintCredential", ({ payload }) => cloudMintCredentialHandler(dependencies, payload))
       .handle("t3MintCredential", ({ payload }) =>

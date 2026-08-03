@@ -58,6 +58,17 @@ export interface IssuedBearerSession {
   readonly expiresAt: DateTime.Utc;
 }
 
+export interface IssuedDpopSession {
+  readonly sessionId: AuthSessionId;
+  readonly token: string;
+  readonly method: "dpop-access-token";
+  readonly scopes: ReadonlyArray<AuthEnvironmentScope>;
+  readonly subject: string;
+  readonly client: AuthClientMetadata;
+  readonly proofKeyThumbprint: string;
+  readonly expiresAt: DateTime.Utc;
+}
+
 export interface AuthenticatedSession {
   readonly sessionId: AuthSessionId;
   readonly subject: string;
@@ -457,6 +468,14 @@ export class EnvironmentAuth extends Context.Service<
       readonly scopes?: ReadonlyArray<AuthEnvironmentScope>;
       readonly label?: string;
     }) => Effect.Effect<IssuedBearerSession, ServerAuthInternalError>;
+    readonly issueDpopSession: (input: {
+      readonly ttl: Duration.Duration;
+      readonly subject: string;
+      readonly scopes: ReadonlyArray<AuthEnvironmentScope>;
+      readonly proofKeyThumbprint: string;
+      readonly label?: string;
+      readonly deviceId?: string;
+    }) => Effect.Effect<IssuedDpopSession, ServerAuthInternalError>;
     readonly listSessions: () => Effect.Effect<
       ReadonlyArray<AuthClientSession>,
       ServerAuthInternalError
@@ -843,6 +862,39 @@ export const make = Effect.gen(function* () {
         Effect.withSpan("EnvironmentAuth.issueSession"),
       );
 
+  const issueDpopSession: EnvironmentAuth["Service"]["issueDpopSession"] = (input) =>
+    sessions
+      .issue({
+        subject: input.subject,
+        method: "dpop-access-token",
+        scopes: input.scopes,
+        proofKeyThumbprint: input.proofKeyThumbprint,
+        ttl: input.ttl,
+        client: {
+          label: input.label ?? "GlassyCode Mobile",
+          deviceType: "mobile",
+          os: "iOS",
+          ...(input.deviceId ? { userAgent: `device:${input.deviceId}` } : {}),
+        },
+      })
+      .pipe(
+        Effect.map(
+          (issued) =>
+            ({
+              sessionId: issued.sessionId,
+              token: issued.token,
+              method: "dpop-access-token",
+              scopes: issued.scopes,
+              subject: input.subject,
+              client: issued.client,
+              proofKeyThumbprint: input.proofKeyThumbprint,
+              expiresAt: DateTime.toUtc(issued.expiresAt),
+            }) satisfies IssuedDpopSession,
+        ),
+        Effect.mapError((cause) => new ServerAuthSessionTokenIssueError({ cause })),
+        Effect.withSpan("EnvironmentAuth.issueDpopSession"),
+      );
+
   const listSessions: EnvironmentAuth["Service"]["listSessions"] = () =>
     sessions.listActive().pipe(
       Effect.map((activeSessions) => activeSessions.toSorted(bySessionPriority)),
@@ -972,6 +1024,7 @@ export const make = Effect.gen(function* () {
     listPairingLinks,
     revokePairingLink,
     issueSession,
+    issueDpopSession,
     listSessions,
     revokeSession,
     revokeOtherSessionsExcept,

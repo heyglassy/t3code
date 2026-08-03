@@ -2,6 +2,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { AuthAdministrativeScopes } from "@t3tools/contracts";
 import { expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Duration from "effect/Duration";
 import * as Layer from "effect/Layer";
 
 import * as ServerConfig from "../config.ts";
@@ -154,6 +155,32 @@ it.layer(NodeServices.layer)("EnvironmentAuth.layer", (it) => {
       expect(
         listedPairingLinks.find((pairingLink) => pairingLink.id === pairingCredential.id)?.subject,
       ).toBe("one-time-token");
+    }).pipe(Effect.provide(makeEnvironmentAuthLayer())),
+  );
+
+  it.effect("issues revocable DPoP sessions for the mobile relay broker", () =>
+    Effect.gen(function* () {
+      const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
+      const sessions = yield* SessionStore.SessionStore;
+
+      const issued = yield* serverAuth.issueDpopSession({
+        ttl: Duration.days(365),
+        subject: "mobile-relay-broker",
+        scopes: ["relay:read"],
+        proofKeyThumbprint: "phone-key-thumbprint",
+        label: "GlassyCode Mobile",
+      });
+      const verified = yield* sessions.verify(issued.token);
+
+      expect(issued.method).toBe("dpop-access-token");
+      expect(verified.subject).toBe("mobile-relay-broker");
+      expect(verified.scopes).toEqual(["relay:read"]);
+      expect(verified.proofKeyThumbprint).toBe("phone-key-thumbprint");
+      expect(verified.client).toMatchObject({
+        label: "GlassyCode Mobile",
+        deviceType: "mobile",
+        os: "iOS",
+      });
     }).pipe(Effect.provide(makeEnvironmentAuthLayer())),
   );
 

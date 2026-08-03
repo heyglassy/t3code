@@ -14,6 +14,7 @@ import { splitEnvironmentSections } from "../connection/environmentSections";
 import { useConnectionController } from "../connection/useConnectionController";
 import { optOutOfConnectOnboarding } from "./connectOnboardingOptOut";
 import { hasCloudPublicConfig } from "./publicConfig";
+import { useDesktopRelayBrokerSession } from "./desktopRelayBroker";
 
 /**
  * Post-sign-in onboarding sheet for T3 Connect. Mobile never publishes
@@ -45,6 +46,9 @@ function ConfiguredConnectOnboardingRouteScreen() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const { isSignedIn, userId } = useAuth({ treatPendingAsSignedOut: false });
+  const desktopBrokerSession = useDesktopRelayBrokerSession();
+  const accountId = userId ?? desktopBrokerSession?.accountId ?? null;
+  const hasCloudSession = isSignedIn || Boolean(desktopBrokerSession);
   const { connectedEnvironments, onReconnectEnvironment } = useRemoteConnections();
   const { refreshRelayEnvironments } = useConnectionController();
   const { connectedCloudEnvironments } = splitEnvironmentSections({
@@ -72,13 +76,13 @@ function ConfiguredConnectOnboardingRouteScreen() {
   // of the preference write; the write is a local secure-store update.
   const handleDontShowAgain = useCallback(() => {
     void (async () => {
-      if (userId) {
-        const result = await settlePromise(() => optOutOfConnectOnboarding(userId));
+      if (accountId) {
+        const result = await settlePromise(() => optOutOfConnectOnboarding(accountId));
         reportAtomCommandResult(result, { label: "connect onboarding opt-out" });
       }
       navigation.goBack();
     })();
-  }, [navigation, userId]);
+  }, [accountId, navigation]);
 
   return (
     <View collapsable={false} className="flex-1 bg-sheet">
@@ -107,7 +111,7 @@ function ConfiguredConnectOnboardingRouteScreen() {
           <RefreshControl refreshing={isPullRefreshing} onRefresh={handlePullRefresh} />
         }
       >
-        {isSignedIn ? (
+        {hasCloudSession ? (
           <CloudEnvironmentRows
             connectedCloudEnvironments={connectedCloudEnvironments}
             onReconnectEnvironment={onReconnectEnvironment}
@@ -121,7 +125,7 @@ function ConfiguredConnectOnboardingRouteScreen() {
           </View>
         )}
 
-        {userId ? (
+        {accountId ? (
           <Pressable
             accessibilityRole="button"
             hitSlop={8}

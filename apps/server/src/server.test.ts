@@ -52,6 +52,7 @@ import * as ManagedRuntime from "effect/ManagedRuntime";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as PubSub from "effect/PubSub";
+import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 import { ChildProcessSpawner } from "effect/unstable/process";
@@ -70,6 +71,7 @@ import * as Socket from "effect/unstable/socket/Socket";
 import { vi } from "vite-plus/test";
 
 const TEST_EPOCH = DateTime.makeUnsafe("1970-01-01T00:00:00.000Z");
+const encodeUnknownJson = Schema.encodeUnknownSync(Schema.UnknownFromJsonString);
 
 import * as BackgroundPolicy from "./background/BackgroundPolicy.ts";
 import * as ServerConfig from "./config.ts";
@@ -2084,6 +2086,98 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       assert.equal(response.status, 200);
       assert.equal(body.linked, false);
       assert.equal(body.publishAgentActivity, false);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("brokers short-lived relay tokens to an authorized mobile DPoP client", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest();
+
+      const ownerCookie = yield* getAuthenticatedSessionCookieHeader();
+      const now = yield* DateTime.now;
+      const clerkToken = [
+        Buffer.from(encodeUnknownJson({ alg: "none", typ: "JWT" })).toString("base64url"),
+        Buffer.from(
+          encodeUnknownJson({
+            sub: "user_glassy",
+            exp: Math.floor(now.epochMilliseconds / 1_000) + 300,
+          }),
+        ).toString("base64url"),
+        "signature",
+      ].join(".");
+      const syncUrl = yield* getHttpServerUrl("/api/connect/mobile-relay-broker/session");
+      const syncResponse = yield* fetchEffect(syncUrl, {
+        method: "POST",
+        headers: {
+          cookie: ownerCookie,
+          "content-type": "application/json",
+        },
+        body: jsonRequestBody({ clerkToken }),
+      });
+      assert.equal(syncResponse.status, 200);
+
+      const pairingResponse = yield* HttpClient.post("/api/auth/pairing-token", {
+        headers: { cookie: ownerCookie },
+        body: yield* HttpBody.json({}),
+      });
+      const pairing = (yield* pairingResponse.json) as { readonly credential: string };
+      const pairedToken = yield* exchangeAccessToken(pairing.credential, {
+        scope: "relay:read",
+      });
+      assert.equal(pairedToken.response.status, 200);
+
+      const tokenUrl = yield* getHttpServerUrl("/api/connect/mobile-relay-broker/token");
+      const mobileKey = makeDpopProof({
+        method: "GET",
+        url: tokenUrl,
+        iat: Math.floor(now.epochMilliseconds / 1_000),
+        jti: "mobile-key",
+      });
+      const credentialUrl = yield* getHttpServerUrl("/api/connect/mobile-relay-broker/credential");
+      const credentialResponse = yield* fetchEffect(credentialUrl, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${pairedToken.body.access_token ?? ""}`,
+          "content-type": "application/json",
+        },
+        body: jsonRequestBody({
+          proofKeyThumbprint: mobileKey.thumbprint,
+          label: "GlassyCode Mobile",
+        }),
+      });
+      const credential = yield* responseJsonEffect<{
+        readonly accountId: string;
+        readonly accessToken: string;
+        readonly expiresAt: string;
+      }>(credentialResponse);
+      assert.equal(credentialResponse.status, 200);
+      assert.equal(credentialResponse.headers["cache-control"], "no-store");
+      assert.equal(credential.accountId, "user_glassy");
+
+      const tokenProof = makeDpopProof({
+        method: "GET",
+        url: tokenUrl,
+        iat: Math.floor(now.epochMilliseconds / 1_000),
+        jti: "mobile-token-renewal",
+        accessToken: credential.accessToken,
+        privateKey: mobileKey.privateKey,
+        publicJwk: mobileKey.publicJwk,
+      });
+      const tokenResponse = yield* fetchEffect(tokenUrl, {
+        headers: {
+          authorization: `DPoP ${credential.accessToken}`,
+          dpop: tokenProof.proof,
+        },
+      });
+      const token = yield* responseJsonEffect<{
+        readonly accountId: string;
+        readonly clerkToken: string;
+        readonly expiresAt: string;
+      }>(tokenResponse);
+
+      assert.equal(tokenResponse.status, 200);
+      assert.equal(tokenResponse.headers["cache-control"], "no-store");
+      assert.deepInclude(token, { accountId: "user_glassy", clerkToken });
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 

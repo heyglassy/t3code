@@ -21,6 +21,7 @@ import { copyTextWithHaptic } from "../../lib/copyTextWithHaptic";
 import { useThemeColor } from "../../lib/useThemeColor";
 import type { ConnectedEnvironmentSummary } from "../../state/remote-runtime-types";
 import { availableCloudEnvironmentPresentation } from "../cloud/cloudEnvironmentPresentation";
+import { useDesktopRelayBrokerSession } from "../cloud/desktopRelayBroker";
 import { ConnectionStatusDot } from "./ConnectionStatusDot";
 import { type RelayEnvironmentView, useConnectionController } from "./useConnectionController";
 
@@ -55,7 +56,8 @@ export function CloudEnvironmentRows(props: CloudEnvironmentRowsProps) {
 
 function SignedInCloudEnvironmentRows(props: CloudEnvironmentRowsProps) {
   const { isSignedIn } = useAuth({ treatPendingAsSignedOut: false });
-  if (!isSignedIn) return null;
+  const desktopBrokerSession = useDesktopRelayBrokerSession();
+  if (!isSignedIn && !desktopBrokerSession) return null;
   return <CloudEnvironmentRowsContent {...props} />;
 }
 

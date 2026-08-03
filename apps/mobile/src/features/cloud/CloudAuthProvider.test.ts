@@ -26,6 +26,16 @@ vi.mock("../../connection/catalog", () => ({
   },
 }));
 
+vi.mock("../../state/use-remote-environment-registry", () => ({
+  useSavedRemoteConnections: vi.fn(() => ({ savedConnectionsById: {} })),
+}));
+
+vi.mock("./desktopRelayBroker", () => ({
+  readDesktopRelayBrokerClerkToken: vi.fn(),
+  resolveDesktopRelayBrokerHttpBaseUrl: vi.fn((session) => session.httpBaseUrl),
+  useDesktopRelayBrokerSession: vi.fn(() => null),
+}));
+
 vi.mock("./publicConfig", () => ({
   resolveCloudPublicConfig: vi.fn(() => ({
     clerk: { publishableKey: null },
