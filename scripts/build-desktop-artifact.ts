@@ -1578,7 +1578,11 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       protocols: [
         {
           name: "Glassycode",
-          schemes: ["glassycode", "glassycode-dev"],
+          // Clerk's production native-app allowlist and the renderer protocol
+          // both use t3code://app. Product branding is independent of the
+          // callback scheme, so keep the registered handler aligned with the
+          // URL the app actually loads and Clerk returns to.
+          schemes: ["t3code", "t3code-dev"],
         },
       ],
       ...(macPasskeySigning
