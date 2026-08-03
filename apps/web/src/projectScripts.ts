@@ -3,6 +3,7 @@ import {
   SCRIPT_RUN_COMMAND_PATTERN,
   type KeybindingCommand,
   type ProjectScript,
+  type T3ProjectFileScript,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 const isScriptRunCommand = Schema.is(SCRIPT_RUN_COMMAND_PATTERN);
@@ -84,4 +85,81 @@ export function nextProjectScriptId(name: string, existingIds: Iterable<string>)
 export function primaryProjectScript(scripts: ReadonlyArray<ProjectScript>): ProjectScript | null {
   const regular = scripts.find((script) => !script.runOnWorktreeCreate);
   return regular ?? scripts[0] ?? null;
+}
+
+/**
+ * Applies checked-in project scripts to the persisted action list while
+ * preserving action ids. UI-only actions remain available, but matching
+ * actions follow the file when the user selects t3.json as the source.
+ */
+export function mergeT3ProjectScripts(
+  scripts: ReadonlyArray<ProjectScript>,
+  fileScripts: ReadonlyArray<T3ProjectFileScript>,
+): ReadonlyArray<ProjectScript> {
+  const usedScriptIds = new Set<string>();
+  const nextScripts = Array.from(scripts);
+  let fileSetupScriptId: string | null = null;
+
+  for (const fileScript of fileScripts) {
+    const matchByNameIndex = nextScripts.findIndex(
+      (script) =>
+        !usedScriptIds.has(script.id) &&
+        script.name.toLowerCase() === fileScript.name.toLowerCase(),
+    );
+    const matchIndex =
+      matchByNameIndex !== -1
+        ? matchByNameIndex
+        : nextScripts.findIndex(
+            (script) =>
+              !usedScriptIds.has(script.id) && script.command.trim() === fileScript.command.trim(),
+          );
+    const existing = matchIndex === -1 ? null : nextScripts[matchIndex];
+    const nextScript = existing
+      ? buildProjectScript(existing.id, {
+          name: fileScript.name,
+          command: fileScript.command,
+          icon: fileScript.icon ?? existing.icon,
+          runOnWorktreeCreate: fileScript.runOnWorktreeCreate ?? false,
+          previewUrl: fileScript.previewUrl ?? null,
+          autoOpenPreview: fileScript.previewUrl ? (fileScript.autoOpenPreview ?? false) : false,
+        })
+      : buildProjectScript(
+          nextProjectScriptId(
+            fileScript.name,
+            nextScripts.map(({ id }) => id),
+          ),
+          {
+            name: fileScript.name,
+            command: fileScript.command,
+            icon: fileScript.icon ?? "play",
+            runOnWorktreeCreate: fileScript.runOnWorktreeCreate ?? false,
+            previewUrl: fileScript.previewUrl ?? null,
+            autoOpenPreview: fileScript.previewUrl ? (fileScript.autoOpenPreview ?? false) : false,
+          },
+        );
+
+    if (fileScript.runOnWorktreeCreate === true && fileSetupScriptId === null) {
+      fileSetupScriptId = nextScript.id;
+    }
+    if (existing && matchIndex !== -1) {
+      nextScripts[matchIndex] = nextScript;
+      usedScriptIds.add(existing.id);
+    } else {
+      nextScripts.push(nextScript);
+      usedScriptIds.add(nextScript.id);
+    }
+  }
+
+  if (fileScripts.length === 0) return nextScripts;
+  return nextScripts.map((script) => ({
+    ...script,
+    runOnWorktreeCreate: script.id === fileSetupScriptId,
+  }));
+}
+
+export function areProjectScriptsEqual(
+  left: ReadonlyArray<ProjectScript>,
+  right: ReadonlyArray<ProjectScript>,
+): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
 }

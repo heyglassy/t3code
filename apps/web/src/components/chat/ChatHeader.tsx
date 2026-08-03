@@ -3,10 +3,11 @@ import {
   type EditorId,
   type ProjectScript,
   type ResolvedKeybindingsConfig,
+  type T3ProjectFileScript,
   type ThreadId,
 } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { memo } from "react";
+import { memo, useEffect, useRef } from "react";
 import GitActionsControl from "../GitActionsControl";
 import { type DraftId } from "~/composerDraftStore";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -17,6 +18,8 @@ import ProjectScriptsControl, {
 import { OpenInPicker } from "./OpenInPicker";
 import { usePrimaryEnvironmentId } from "../../state/environments";
 import { useT3ProjectFileScripts } from "~/hooks/useT3ProjectFileScripts";
+import { useClientSettings } from "~/hooks/useSettings";
+import { areProjectScriptsEqual, mergeT3ProjectScripts } from "~/projectScripts";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { cn } from "~/lib/utils";
 
@@ -40,6 +43,9 @@ interface ChatHeaderProps {
   onUpdateProjectScript: (
     scriptId: string,
     input: NewProjectScriptInput,
+  ) => Promise<ProjectScriptActionResult>;
+  onSyncProjectScripts: (
+    fileScripts: ReadonlyArray<T3ProjectFileScript>,
   ) => Promise<ProjectScriptActionResult>;
   onDeleteProjectScript: (scriptId: string) => Promise<ProjectScriptActionResult>;
 }
@@ -74,13 +80,31 @@ export const ChatHeader = memo(function ChatHeader({
   onRunProjectScript,
   onAddProjectScript,
   onUpdateProjectScript,
+  onSyncProjectScripts,
   onDeleteProjectScript,
 }: ChatHeaderProps) {
   const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const projectScriptSource = useClientSettings((settings) => settings.projectScriptSource);
   const fileScripts = useT3ProjectFileScripts(
     activeThreadEnvironmentId,
     activeProjectScripts ? activeProjectCwd : null,
+    projectScriptSource === "t3-json",
   );
+  const syncInFlightKey = useRef<string | null>(null);
+  useEffect(() => {
+    if (projectScriptSource !== "t3-json" || !activeProjectScripts || fileScripts.length === 0) {
+      return;
+    }
+    const nextScripts = mergeT3ProjectScripts(activeProjectScripts, fileScripts);
+    if (areProjectScriptsEqual(activeProjectScripts, nextScripts)) return;
+
+    const syncKey = JSON.stringify(nextScripts);
+    if (syncInFlightKey.current === syncKey) return;
+    syncInFlightKey.current = syncKey;
+    void onSyncProjectScripts(fileScripts).finally(() => {
+      if (syncInFlightKey.current === syncKey) syncInFlightKey.current = null;
+    });
+  }, [activeProjectScripts, fileScripts, onSyncProjectScripts, projectScriptSource]);
   const showOpenInPicker = shouldShowOpenInPicker({
     activeProjectName,
     activeThreadEnvironmentId,

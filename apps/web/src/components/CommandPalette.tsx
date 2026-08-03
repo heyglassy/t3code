@@ -1,7 +1,10 @@
 "use client";
 
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { canCreateProjectInEnvironment } from "@t3tools/client-runtime/operations/projects";
+import {
+  canCreateProjectInEnvironment,
+  getAddProjectCloneInitialQuery,
+} from "@t3tools/client-runtime/operations/projects";
 import { connectionStatusText } from "@t3tools/client-runtime/connection";
 import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
 import {
@@ -9,6 +12,8 @@ import {
   createBrowseNavigationCoordinator,
   filterFilesystemBrowseEntries,
   getFilesystemBrowsePath,
+  getFilesystemSearchRoot,
+  resolveFilesystemSearchPath,
 } from "@t3tools/client-runtime/state/filesystem";
 import {
   isAtomCommandInterrupted,
@@ -62,6 +67,7 @@ import { desktopLocalBackendId } from "../connection/desktopLocal";
 import { filesystemEnvironment } from "../state/filesystem";
 import { projectEnvironment } from "../state/projects";
 import { useEnvironmentQuery } from "../state/query";
+import { useProjectPathSearch } from "../state/queries";
 import { sourceControlEnvironment } from "../state/sourceControl";
 import { useAtomCommand } from "../state/use-atom-command";
 import { useAtomQueryRunner } from "../state/use-atom-query-runner";
@@ -530,6 +536,7 @@ function OpenCommandPaletteDialog(props: {
   const navigate = useNavigate();
   const { clearOpenIntent, openIntent, openOverlayMode, setOpen } = props;
   const [query, setQuery] = useState("");
+  const commandInputRef = useRef<HTMLInputElement>(null);
   const deferredQuery = useDeferredValue(query);
   const isActionsOnly = deferredQuery.startsWith(">");
   const [highlightedItemValue, setHighlightedItemValue] = useState<string | null>(null);
@@ -592,6 +599,11 @@ function OpenCommandPaletteDialog(props: {
   );
   const [isPickingProjectFolder, setIsPickingProjectFolder] = useState(false);
   const [addProjectCloneFlow, setAddProjectCloneFlow] = useState<AddProjectCloneFlow | null>(null);
+  useLayoutEffect(() => {
+    if (addProjectCloneFlow?.step === "confirm") {
+      commandInputRef.current?.select();
+    }
+  }, [addProjectCloneFlow?.step]);
   const [isRemoteProjectLookingUp, setIsRemoteProjectLookingUp] = useState(false);
   const [isRemoteProjectCloning, setIsRemoteProjectCloning] = useState(false);
   const projectGroupingSettings = useMemo(
@@ -767,6 +779,11 @@ function OpenCommandPaletteDialog(props: {
     [browseEnvironmentPlatform, isRemoteProjectRepositoryStep, query],
   );
   const isBrowsing = browsePath.isBrowsing;
+  const isAddProjectLocalBrowseView =
+    addProjectCloneFlow === null &&
+    addProjectEnvironmentId !== null &&
+    currentView?.initialQuery !== undefined;
+  const isSearchingAllProjectPaths = isAddProjectLocalBrowseView && !isBrowsing;
   const browseDirectoryPath = browsePath.directoryPath;
   const paletteMode = getCommandPaletteMode({ currentView, isBrowsing });
   const getAddProjectInitialQueryForEnvironment = useCallback(
@@ -829,6 +846,15 @@ function OpenCommandPaletteDialog(props: {
   const browseResult = browseQuery.data;
   const isBrowsePending = browseQuery.isPending;
   const browseEntries = browseResult?.entries ?? EMPTY_BROWSE_ENTRIES;
+  const globalProjectPathSearch = useProjectPathSearch(
+    {
+      environmentId: isSearchingAllProjectPaths ? browseEnvironmentId : null,
+      cwd: getFilesystemSearchRoot(browseEnvironmentPlatform),
+      query: isSearchingAllProjectPaths ? query : null,
+      kind: "directory",
+    },
+    50,
+  );
   const { visibleEntries: visibleBrowseEntries, exactEntry: exactBrowseEntry } = useMemo(
     () => filterFilesystemBrowseEntries(browseEntries, browsePath.filterQuery),
     [browseEntries, browsePath.filterQuery],
@@ -1059,7 +1085,7 @@ function OpenCommandPaletteDialog(props: {
     browseNavigation.invalidate();
     setHighlightedItemValue(null);
     setQuery(nextQuery);
-    if (nextQuery === "" && currentView?.initialQuery) {
+    if (nextQuery === "" && currentView?.initialQuery && !isAddProjectLocalBrowseView) {
       popView();
     }
   }
@@ -1660,8 +1686,56 @@ function OpenCommandPaletteDialog(props: {
     ],
   );
 
-  function getDefaultCloneParentPath(environmentId: EnvironmentId): string {
-    return getAddProjectInitialQueryForEnvironment(environmentId);
+  const globalProjectSearchGroups = useMemo<CommandPaletteView["groups"]>(() => {
+    if (!isSearchingAllProjectPaths || globalProjectPathSearch.isPending || !browseEnvironmentId) {
+      return [];
+    }
+
+    const searchRoot = getFilesystemSearchRoot(browseEnvironmentPlatform);
+    const items: CommandPaletteActionItem[] = globalProjectPathSearch.entries.map((entry) => {
+      const fullPath = resolveFilesystemSearchPath(searchRoot, entry.path);
+      const name = entry.path.split(/[\\/]/).at(-1) ?? entry.path;
+      return {
+        kind: "action",
+        value: `global-browse:${fullPath}`,
+        searchTerms: [name, entry.path, fullPath],
+        title: name,
+        description: fullPath,
+        icon: <FolderIcon className={ITEM_ICON_CLASS} />,
+        run: async () => {
+          await handleAddProjectForEnvironment({
+            environmentId: browseEnvironmentId,
+            rawCwd: fullPath,
+            platform: browseEnvironmentPlatform,
+            currentProjectCwd: null,
+          });
+        },
+      };
+    });
+
+    return items.length > 0 ? [{ value: "global-directories", label: "Directories", items }] : [];
+  }, [
+    browseEnvironmentId,
+    browseEnvironmentPlatform,
+    globalProjectPathSearch.entries,
+    globalProjectPathSearch.isPending,
+    handleAddProjectForEnvironment,
+    isSearchingAllProjectPaths,
+  ]);
+
+  function getDefaultClonePath(input: {
+    readonly environmentId: EnvironmentId;
+    readonly repositoryName?: string | null;
+    readonly remoteUrl?: string | null;
+  }): string {
+    const environment = environments.find(
+      (candidate) => candidate.environmentId === input.environmentId,
+    );
+    return getAddProjectCloneInitialQuery({
+      baseDirectory: environment?.serverConfig?.settings?.cloneProjectBaseDirectory,
+      repositoryName: input.repositoryName,
+      remoteUrl: input.remoteUrl,
+    });
   }
 
   async function submitAddProjectCloneFlow(destinationPathInput?: string): Promise<void> {
@@ -1687,7 +1761,10 @@ function OpenCommandPaletteDialog(props: {
 
       const provider = remoteProjectSourceProvider(addProjectCloneFlow.source);
       if (!provider) {
-        const destinationPath = getDefaultCloneParentPath(addProjectCloneFlow.environmentId);
+        const destinationPath = getDefaultClonePath({
+          environmentId: addProjectCloneFlow.environmentId,
+          remoteUrl: rawRepository,
+        });
         setAddProjectCloneFlow({
           step: "confirm",
           environmentId: addProjectCloneFlow.environmentId,
@@ -1724,7 +1801,11 @@ function OpenCommandPaletteDialog(props: {
         return;
       }
       const repository = lookupResult.value;
-      const destinationPath = getDefaultCloneParentPath(addProjectCloneFlow.environmentId);
+      const destinationPath = getDefaultClonePath({
+        environmentId: addProjectCloneFlow.environmentId,
+        repositoryName: repository.nameWithOwner,
+        remoteUrl: repository.sshUrl,
+      });
       setAddProjectCloneFlow({
         step: "confirm",
         environmentId: addProjectCloneFlow.environmentId,
@@ -1868,7 +1949,9 @@ function OpenCommandPaletteDialog(props: {
     };
   }, [addProjectCloneFlow]);
 
-  let displayedGroups: CommandPaletteView["groups"] = filteredGroups;
+  let displayedGroups: CommandPaletteView["groups"] = isSearchingAllProjectPaths
+    ? globalProjectSearchGroups
+    : filteredGroups;
   if (addProjectCloneFlow?.step === "repository") {
     displayedGroups = [];
   } else if (addProjectCloneFlow?.step === "confirm") {
@@ -1877,9 +1960,10 @@ function OpenCommandPaletteDialog(props: {
     displayedGroups = relativePathNeedsActiveProject ? [] : browseGroups;
   }
 
-  const inputPlaceholder =
-    remoteProjectInputPlaceholder(addProjectCloneFlow) ??
-    getCommandPaletteInputPlaceholder(paletteMode);
+  const inputPlaceholder = isSearchingAllProjectPaths
+    ? "Search all paths…"
+    : (remoteProjectInputPlaceholder(addProjectCloneFlow) ??
+      getCommandPaletteInputPlaceholder(paletteMode));
   const isSubmenu = paletteMode === "submenu" || paletteMode === "submenu-browse";
   const hasHighlightedBrowseItem = highlightedItemValue?.startsWith("browse:") ?? false;
   const canSubmitBrowsePath =
@@ -2240,6 +2324,7 @@ function OpenCommandPaletteDialog(props: {
       footerTrailing={footerTrailing}
       inputAccessory={inputAccessory}
       inputProps={{
+        ref: commandInputRef,
         className:
           addProjectCloneFlow?.step === "repository"
             ? "pe-32"
@@ -2310,13 +2395,23 @@ function OpenCommandPaletteDialog(props: {
             ? { emptyStateMessage: "Choose a destination path and press Enter to clone." }
             : relativePathNeedsActiveProject
               ? { emptyStateMessage: "Relative paths require an active project." }
-              : willCreateProjectPath
+              : isSearchingAllProjectPaths
                 ? {
-                    emptyStateMessage: "Press Enter to create this folder and add it as a project.",
+                    emptyStateMessage: globalProjectPathSearch.isPending
+                      ? "Searching all paths…"
+                      : (globalProjectPathSearch.error ??
+                        (query.trim().length > 0
+                          ? "No matching folders."
+                          : "Type a folder name to search all paths.")),
                   }
-                : threadSearch.isPending
-                  ? { emptyStateMessage: "Searching thread messages…" }
-                  : {})}
+                : willCreateProjectPath
+                  ? {
+                      emptyStateMessage:
+                        "Press Enter to create this folder and add it as a project.",
+                    }
+                  : threadSearch.isPending
+                    ? { emptyStateMessage: "Searching thread messages…" }
+                    : {})}
       />
     </CommandPaletteContent>
   );

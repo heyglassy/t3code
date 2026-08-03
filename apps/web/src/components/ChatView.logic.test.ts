@@ -26,6 +26,7 @@ import {
   reconcileRetainedMountedThreadIds,
   resolveThreadMetadataUpdateForNextTurn,
   resolveSendEnvMode,
+  shouldMarkThreadVisited,
   startNewThreadForProject,
   shouldShowBranchMismatchBanner,
   shouldWriteThreadErrorToCurrentServerThread,
@@ -85,6 +86,31 @@ const readySession = {
   lastError: null,
   updatedAt: "2026-03-29T00:00:10.000Z",
 };
+
+describe("shouldMarkThreadVisited", () => {
+  it("marks a thread visited when it has no current or older visit marker", () => {
+    expect(
+      shouldMarkThreadVisited({
+        threadUpdatedAt: "2026-03-29T00:00:10.000Z",
+        lastVisitedAt: "2026-03-29T00:00:09.999Z",
+      }),
+    ).toBe(true);
+    expect(shouldMarkThreadVisited({ threadUpdatedAt: "2026-03-29T00:00:10.000Z" })).toBe(true);
+  });
+
+  it("does not move a newer visit marker backwards", () => {
+    expect(
+      shouldMarkThreadVisited({
+        threadUpdatedAt: "2026-03-29T00:00:10.000Z",
+        lastVisitedAt: "2026-03-29T00:00:10.001Z",
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects an invalid thread timestamp", () => {
+    expect(shouldMarkThreadVisited({ threadUpdatedAt: "not-a-date" })).toBe(false);
+  });
+});
 
 describe("buildLoadingThreadFromShell", () => {
   it("preserves shell metadata and supplies empty detail collections", () => {

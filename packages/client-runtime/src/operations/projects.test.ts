@@ -12,6 +12,7 @@ import {
   buildProjectCreateCommand,
   canCreateProjectInEnvironment,
   findExistingAddProject,
+  getAddProjectCloneInitialQuery,
   getAddProjectInitialQuery,
   resolveAddProjectPath,
   sortAddProjectProviderSources,
@@ -32,6 +33,22 @@ describe("add project shared logic", () => {
     expect(getAddProjectInitialQuery("")).toBe("~/");
     expect(getAddProjectInitialQuery("/work")).toBe("/work/");
     expect(getAddProjectInitialQuery("C:\\work")).toBe("C:\\work\\");
+  });
+
+  it("defaults remote clones to the repository directory under the configured base", () => {
+    expect(
+      getAddProjectCloneInitialQuery({
+        baseDirectory: "",
+        repositoryName: "octocat/t3code",
+        remoteUrl: "git@github.com:octocat/t3code.git",
+      }),
+    ).toBe("~/t3code/");
+    expect(
+      getAddProjectCloneInitialQuery({
+        baseDirectory: "~/Development",
+        remoteUrl: "https://github.com/octocat/t3code.git?ref=main",
+      }),
+    ).toBe("~/Development/t3code/");
   });
 
   it("rejects unsupported windows paths on non-windows environments", () => {

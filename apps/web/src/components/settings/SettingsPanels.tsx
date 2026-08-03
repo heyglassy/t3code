@@ -36,6 +36,7 @@ import {
   type EnvironmentIdentificationMode,
   MAX_GLASS_OPACITY,
   MIN_GLASS_OPACITY,
+  type ProjectScriptSource,
 } from "@t3tools/contracts/settings";
 import {
   getBackgroundActivityBaseProfile,
@@ -158,6 +159,11 @@ const ENVIRONMENT_IDENTIFICATION_LABELS: Record<EnvironmentIdentificationMode, s
   artwork: "Artwork",
   pill: "Version pill",
   none: "None",
+};
+
+const PROJECT_SCRIPT_SOURCE_LABELS: Record<ProjectScriptSource, string> = {
+  ui: "Saved actions",
+  "t3-json": "t3.json",
 };
 
 const TIMESTAMP_FORMAT_LABELS = {
@@ -584,6 +590,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode
         ? ["Project Grouping"]
         : []),
+      ...(settings.projectScriptSource !== DEFAULT_UNIFIED_SETTINGS.projectScriptSource
+        ? ["Project action source"]
+        : []),
       ...(settings.wordWrap !== DEFAULT_UNIFIED_SETTINGS.wordWrap ? ["Word wrap"] : []),
       ...(settings.diffIgnoreWhitespace !== DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace
         ? ["Diff whitespace changes"]
@@ -609,6 +618,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.addProjectBaseDirectory !== DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory
         ? ["Add project base directory"]
         : []),
+      ...(settings.cloneProjectBaseDirectory !== DEFAULT_UNIFIED_SETTINGS.cloneProjectBaseDirectory
+        ? ["Remote clone directory"]
+        : []),
       ...(settings.confirmThreadArchive !== DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive
         ? ["Archive confirmation"]
         : []),
@@ -624,6 +636,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.confirmThreadArchive,
       settings.confirmThreadDelete,
       settings.addProjectBaseDirectory,
+      settings.cloneProjectBaseDirectory,
       settings.defaultThreadEnvMode,
       settings.newWorktreesStartFromOrigin,
       settings.diffIgnoreWhitespace,
@@ -631,6 +644,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.glassOpacity,
       settings.enableAssistantStreaming,
       settings.enableProviderUpdateChecks,
+      settings.projectScriptSource,
       settings.sidebarProjectGroupingMode,
       settings.sidebarThreadPreviewCount,
       settings.timestampFormat,
@@ -658,6 +672,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity,
       sidebarThreadPreviewCount: DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount,
       sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
+      projectScriptSource: DEFAULT_UNIFIED_SETTINGS.projectScriptSource,
       autoOpenPlanSidebar: DEFAULT_UNIFIED_SETTINGS.autoOpenPlanSidebar,
       enableAssistantStreaming: DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming,
       enableProviderUpdateChecks: DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks,
@@ -668,6 +683,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       defaultThreadEnvMode: DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode,
       newWorktreesStartFromOrigin: DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin,
       addProjectBaseDirectory: DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory,
+      cloneProjectBaseDirectory: DEFAULT_UNIFIED_SETTINGS.cloneProjectBaseDirectory,
       confirmThreadArchive: DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive,
       confirmThreadDelete: DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete,
       textGenerationModelSelection: DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
@@ -1206,6 +1222,47 @@ export function GeneralSettingsPanel() {
         />
 
         <SettingsRow
+          title="Project action source"
+          description="Choose whether project actions stay saved in T3 Code or follow scripts declared in t3.json. Saved actions are the default."
+          resetAction={
+            settings.projectScriptSource !== DEFAULT_UNIFIED_SETTINGS.projectScriptSource ? (
+              <SettingResetButton
+                label="project action source"
+                onClick={() =>
+                  updateSettings({
+                    projectScriptSource: DEFAULT_UNIFIED_SETTINGS.projectScriptSource,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Select
+              value={settings.projectScriptSource}
+              onValueChange={(value) => {
+                if (value === "ui" || value === "t3-json") {
+                  updateSettings({ projectScriptSource: value });
+                }
+              }}
+            >
+              <SelectTrigger className="w-full sm:w-44" aria-label="Project action source">
+                <SelectValue>
+                  {PROJECT_SCRIPT_SOURCE_LABELS[settings.projectScriptSource]}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                <SelectItem hideIndicator value="ui">
+                  {PROJECT_SCRIPT_SOURCE_LABELS.ui}
+                </SelectItem>
+                <SelectItem hideIndicator value="t3-json">
+                  {PROJECT_SCRIPT_SOURCE_LABELS["t3-json"]}
+                </SelectItem>
+              </SelectPopup>
+            </Select>
+          }
+        />
+
+        <SettingsRow
           title="Time format"
           description="System default follows your browser or OS clock preference."
           resetAction={
@@ -1535,6 +1592,34 @@ export function GeneralSettingsPanel() {
               placeholder="~/"
               spellCheck={false}
               aria-label="Add project base directory"
+            />
+          }
+        />
+
+        <SettingsRow
+          title="Remote project clones start in"
+          description='Leave empty to clone to "~/repository-name".'
+          resetAction={
+            settings.cloneProjectBaseDirectory !==
+            DEFAULT_UNIFIED_SETTINGS.cloneProjectBaseDirectory ? (
+              <SettingResetButton
+                label="remote clone directory"
+                onClick={() =>
+                  updateSettings({
+                    cloneProjectBaseDirectory: DEFAULT_UNIFIED_SETTINGS.cloneProjectBaseDirectory,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <DraftInput
+              className="w-full sm:w-72"
+              value={settings.cloneProjectBaseDirectory}
+              onCommit={(next) => updateSettings({ cloneProjectBaseDirectory: next })}
+              placeholder="~/"
+              spellCheck={false}
+              aria-label="Remote project clone base directory"
             />
           }
         />

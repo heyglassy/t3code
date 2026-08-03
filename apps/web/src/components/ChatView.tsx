@@ -12,6 +12,7 @@ import {
   type ServerProvider,
   type ResolvedKeybindingsConfig,
   type ScopedThreadRef,
+  type T3ProjectFileScript,
   type ThreadId,
   type TurnId,
   type KeybindingCommand,
@@ -159,7 +160,9 @@ import { decodeProjectScriptKeybindingRule } from "~/lib/projectScriptKeybinding
 import { type NewProjectScriptInput } from "./ProjectScriptsControl";
 import {
   buildProjectScript,
+  areProjectScriptsEqual,
   commandForProjectScript,
+  mergeT3ProjectScripts,
   nextProjectScriptId,
   projectScriptIdFromCommand,
 } from "~/projectScripts";
@@ -274,6 +277,7 @@ import {
   resolveSendEnvMode,
   revokeBlobPreviewUrl,
   revokeUserMessagePreviewUrls,
+  shouldMarkThreadVisited,
   shouldWriteThreadErrorToCurrentServerThread,
   startNewThreadForProject,
   waitForStartedServerThread,
@@ -1207,9 +1211,6 @@ function ChatViewContent(props: ChatViewProps) {
   );
   const activeServerThread = serverThread ?? loadingServerThread;
   const markThreadVisited = useUiStateStore((store) => store.markThreadVisited);
-  const activeThreadLastVisitedAt = useUiStateStore(
-    (store) => store.threadLastVisitedAtById[routeThreadKey],
-  );
   const settings = useEnvironmentSettings(environmentId);
   // New-thread defaults live in the primary environment's settings.json (the
   // settings UI never writes to remote environments), so read them from the
@@ -1826,22 +1827,16 @@ function ChatViewContent(props: ChatViewProps) {
 
   useEffect(() => {
     if (!serverThread?.id) return;
-    const threadUpdatedAt = Date.parse(serverThread.updatedAt);
-    if (Number.isNaN(threadUpdatedAt)) return;
-    const lastVisitedAt = activeThreadLastVisitedAt ? Date.parse(activeThreadLastVisitedAt) : NaN;
-    if (!Number.isNaN(lastVisitedAt) && lastVisitedAt >= threadUpdatedAt) return;
+    const threadKey = scopedThreadKey(scopeThreadRef(serverThread.environmentId, serverThread.id));
+    // Read this imperatively: subscribing to the marker would make a local
+    // "mark unread" action immediately trigger this effect and clear itself.
+    const lastVisitedAt = useUiStateStore.getState().threadLastVisitedAtById[threadKey];
+    if (!shouldMarkThreadVisited({ threadUpdatedAt: serverThread.updatedAt, lastVisitedAt })) {
+      return;
+    }
 
-    markThreadVisited(
-      scopedThreadKey(scopeThreadRef(serverThread.environmentId, serverThread.id)),
-      serverThread.updatedAt,
-    );
-  }, [
-    activeThreadLastVisitedAt,
-    markThreadVisited,
-    serverThread?.environmentId,
-    serverThread?.id,
-    serverThread?.updatedAt,
-  ]);
+    markThreadVisited(threadKey, serverThread.updatedAt);
+  }, [markThreadVisited, serverThread?.environmentId, serverThread?.id, serverThread?.updatedAt]);
 
   const selectedProviderByThreadId = composerActiveProvider ?? null;
   const threadProvider =
@@ -2932,6 +2927,28 @@ function ChatViewContent(props: ChatViewProps) {
       return updateResult;
     },
     [environmentId, updateProject, upsertKeybinding],
+  );
+  const syncProjectScriptsFromFile = useCallback(
+    async (
+      fileScripts: ReadonlyArray<T3ProjectFileScript>,
+    ): Promise<AtomCommandResult<void, unknown>> => {
+      if (!activeProject) return AsyncResult.success(undefined);
+      const nextScripts = mergeT3ProjectScripts(activeProject.scripts, fileScripts);
+      if (areProjectScriptsEqual(activeProject.scripts, nextScripts)) {
+        return AsyncResult.success(undefined);
+      }
+      return mapAtomCommandResult(
+        await updateProject({
+          environmentId,
+          input: {
+            projectId: activeProject.id,
+            scripts: nextScripts,
+          },
+        }),
+        () => undefined,
+      );
+    },
+    [activeProject, environmentId, updateProject],
   );
   const saveProjectScript = useCallback(
     async (input: NewProjectScriptInput): Promise<AtomCommandResult<void, unknown>> => {
@@ -5760,6 +5777,7 @@ function ChatViewContent(props: ChatViewProps) {
             onRunProjectScript={runProjectScript}
             onAddProjectScript={saveProjectScript}
             onUpdateProjectScript={updateProjectScript}
+            onSyncProjectScripts={syncProjectScriptsFromFile}
             onDeleteProjectScript={deleteProjectScript}
           />
         </header>

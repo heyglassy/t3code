@@ -19,7 +19,8 @@ T3 Code works with the platforms your team already uses:
 
 - Open the Command Palette (`Cmd/Ctrl + K`) → **Add Project**
 - Choose **GitHub repository**, **GitLab repository**, **Bitbucket repository**, **Azure DevOps repository**, or paste any **Git URL**
-- Enter the repository path (`owner/repo`, `group/project`, `workspace/repository`, or `project/repository`) or a full Git URL, pick a destination, and start coding
+- Enter the repository path (`owner/repo`, `group/project`, `workspace/repository`, or `project/repository`) or a full Git URL. T3 Code defaults the destination to `~/repository-name`, with the path selected so you can replace it immediately, then start coding
+- Change the default parent directory in **Settings → General → Remote project clones start in**
 
 **Publish local projects to the cloud**
 

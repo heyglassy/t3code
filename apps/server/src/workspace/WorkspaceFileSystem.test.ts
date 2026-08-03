@@ -2,8 +2,11 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it, describe, expect } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as Stream from "effect/Stream";
 
 import * as ServerConfig from "../config.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
@@ -262,6 +265,27 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
           .stat(escapedPath)
           .pipe(Effect.orElseSucceed(() => null));
         expect(escapedStat).toBeNull();
+      }),
+    );
+  });
+
+  describe("watchFile", () => {
+    it.effect("emits when a workspace file changes", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir;
+        yield* writeTextFile(cwd, "t3.json", "{}\n");
+
+        const nextChange = yield* Stream.runHead(
+          workspaceFileSystem.watchFile({ cwd, relativePath: "t3.json" }),
+        ).pipe(Effect.forkChild);
+        yield* Effect.yieldNow;
+        yield* fileSystem.writeFileString(path.join(cwd, "t3.json"), '{"scripts":[]}\n');
+
+        const change = yield* Fiber.join(nextChange);
+        expect(Option.getOrNull(change)).toEqual({ relativePath: "t3.json" });
       }),
     );
   });

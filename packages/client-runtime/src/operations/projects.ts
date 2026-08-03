@@ -13,6 +13,7 @@ import * as Option from "effect/Option";
 import * as Order from "effect/Order";
 
 import {
+  appendBrowsePathSegment,
   ensureBrowseDirectoryPath,
   findProjectByPath,
   inferProjectTitleFromPath,
@@ -174,6 +175,44 @@ export function buildAddProjectRemoteSourceReadiness(
 export function getAddProjectInitialQuery(baseDirectory: string | null | undefined): string {
   const trimmed = baseDirectory?.trim() ?? "";
   return trimmed.length === 0 ? "~/" : ensureBrowseDirectoryPath(trimmed);
+}
+
+function inferRepositoryDirectoryName(
+  repositoryName: string | null | undefined,
+  remoteUrl: string | null | undefined,
+): string | null {
+  for (const candidate of [repositoryName, remoteUrl]) {
+    const trimmed = candidate?.trim() ?? "";
+    if (trimmed.length === 0) continue;
+
+    const withoutSuffix = trimmed.replace(/[?#].*$/, "").replace(/[\\/]+$/, "");
+    const segment =
+      withoutSuffix
+        .split(/[\\/]/)
+        .at(-1)
+        ?.replace(/\.git$/i, "")
+        .trim() ?? "";
+    if (segment.length > 0 && segment !== "." && segment !== "..") {
+      return segment;
+    }
+  }
+
+  return null;
+}
+
+export function getAddProjectCloneInitialQuery(input: {
+  readonly baseDirectory: string | null | undefined;
+  readonly repositoryName?: string | null | undefined;
+  readonly remoteUrl?: string | null | undefined;
+}): string {
+  const baseDirectory = getAddProjectInitialQuery(input.baseDirectory);
+  const repositoryDirectoryName = inferRepositoryDirectoryName(
+    input.repositoryName,
+    input.remoteUrl,
+  );
+  return repositoryDirectoryName === null
+    ? baseDirectory
+    : appendBrowsePathSegment(baseDirectory, repositoryDirectoryName);
 }
 
 export function resolveAddProjectPath(input: {
