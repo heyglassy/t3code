@@ -44,6 +44,10 @@ import type {
   TerminalWriteInput,
 } from "./terminal.ts";
 import * as Schema from "effect/Schema";
+import {
+  type DesktopReleaseCatalogState,
+  type DesktopReleaseSelectionResult,
+} from "./releaseCatalog.ts";
 import type {
   DiscoveredLocalServerList,
   PreviewCloseInput,
@@ -1012,6 +1016,9 @@ export interface DesktopBridge {
   onWindowFullscreenStateChange: (listener: (fullscreen: boolean) => void) => () => void;
   getUpdateState: () => Promise<DesktopUpdateState>;
   setUpdateChannel: (channel: DesktopUpdateChannel) => Promise<DesktopUpdateState>;
+  getReleaseCatalog: () => Promise<DesktopReleaseCatalogState>;
+  setReleaseCatalogSource: (source: string) => Promise<DesktopReleaseCatalogState>;
+  selectReleaseTarget: (targetId: string) => Promise<DesktopReleaseSelectionResult>;
   checkForUpdate: () => Promise<DesktopUpdateCheckResult>;
   downloadUpdate: () => Promise<DesktopUpdateActionResult>;
   installUpdate: () => Promise<DesktopUpdateActionResult>;

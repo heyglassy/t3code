@@ -9,10 +9,11 @@ import {
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import type { CSSProperties } from "react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAtomValue } from "@effect/atom-react";
 import {
   defaultInstanceIdForDriver,
+  type DesktopReleaseCatalogState,
   type BackgroundActivityProfile,
   type BackgroundActivitySettings,
   type DesktopUpdateChannel,
@@ -88,6 +89,7 @@ import { useProjects } from "../../state/entities";
 import { useArchivedThreadSnapshots } from "../../lib/archivedThreadsState";
 import { formatRelativeTimeLabel, getRelativeTimeState } from "../../timestampFormat";
 import { Button } from "../ui/button";
+import { Input } from "../ui/input";
 import {
   Dialog,
   DialogDescription,
@@ -559,6 +561,165 @@ function AboutVersionSection() {
         />
       ) : null}
     </>
+  );
+}
+
+function ReleaseCatalogPanel() {
+  const bridge = typeof window !== "undefined" ? window.desktopBridge : undefined;
+  const [state, setState] = useState<DesktopReleaseCatalogState | null>(null);
+  const [sourceDraft, setSourceDraft] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSavingSource, setIsSavingSource] = useState(false);
+  const [selectingTargetId, setSelectingTargetId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!bridge?.getReleaseCatalog) {
+      setIsLoading(false);
+      return;
+    }
+    let cancelled = false;
+    void bridge
+      .getReleaseCatalog()
+      .then((nextState) => {
+        if (cancelled) return;
+        setState(nextState);
+        setSourceDraft(nextState.source);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not load releases",
+            description: error instanceof Error ? error.message : "Release catalog unavailable.",
+          }),
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [bridge]);
+
+  if (!bridge?.getReleaseCatalog) return null;
+
+  const saveSource = () => {
+    if (!bridge.setReleaseCatalogSource || sourceDraft.trim().length === 0) return;
+    setIsSavingSource(true);
+    void bridge
+      .setReleaseCatalogSource(sourceDraft.trim())
+      .then((nextState) => {
+        setState(nextState);
+        setSourceDraft(nextState.source);
+      })
+      .catch((error: unknown) => {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not save release source",
+            description: error instanceof Error ? error.message : "Release source update failed.",
+          }),
+        );
+      })
+      .finally(() => setIsSavingSource(false));
+  };
+
+  const selectTarget = (targetId: string) => {
+    if (!bridge.selectReleaseTarget) return;
+    setSelectingTargetId(targetId);
+    void bridge
+      .selectReleaseTarget(targetId)
+      .then((result) => setState(result.state))
+      .catch((error: unknown) => {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not select release",
+            description: error instanceof Error ? error.message : "Release selection failed.",
+          }),
+        );
+      })
+      .finally(() => setSelectingTargetId(null));
+  };
+
+  return (
+    <SettingsSection title="Releases">
+      <SettingsRow
+        title="Catalog source"
+        description="HTTPS JSON endpoint or local JSON file. The default points at the Glassycode fork's main branch."
+        control={
+          <div className="flex w-full max-w-xl gap-2">
+            <Input
+              value={sourceDraft}
+              onValueChange={setSourceDraft}
+              aria-label="Release catalog source"
+              placeholder="https://…/release-catalog.json"
+            />
+            <Button size="xs" variant="outline" disabled={isSavingSource} onClick={saveSource}>
+              {isSavingSource ? "Loading…" : "Refresh"}
+            </Button>
+          </div>
+        }
+      />
+      {isLoading ? (
+        <p className="px-1 text-xs text-muted-foreground">Loading release catalog…</p>
+      ) : state?.error ? (
+        <p className="px-1 text-xs text-muted-foreground">{state.error}</p>
+      ) : state?.catalog?.releases.length ? (
+        <div className="space-y-2">
+          {state.catalog.releases.map((release) => {
+            const selected = state.selectedTargetId === release.id;
+            return (
+              <div
+                key={release.id}
+                className="flex flex-col gap-2 rounded-lg border border-border/60 px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2 text-sm">
+                    <span className="font-medium">{release.version}</span>
+                    <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                      {release.channel}
+                    </span>
+                    <code className="text-[11px] text-muted-foreground">
+                      {release.commitSha.slice(0, 12)}
+                    </code>
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {release.prNumber !== undefined
+                      ? `PR #${release.prNumber}`
+                      : (release.branch ?? "Main")}
+                    {release.prTitle ? ` · ${release.prTitle}` : ""}
+                    {release.buildId ? ` · build ${release.buildId}` : ""}
+                  </div>
+                </div>
+                <Button
+                  size="xs"
+                  variant={selected ? "default" : "outline"}
+                  disabled={selected || selectingTargetId !== null}
+                  onClick={() => selectTarget(release.id)}
+                >
+                  {selected
+                    ? "Selected"
+                    : selectingTargetId === release.id
+                      ? "Selecting…"
+                      : "Switch to this version"}
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="px-1 text-xs text-muted-foreground">No release targets are published yet.</p>
+      )}
+      {state?.restartRequired ? (
+        <p className="px-1 text-xs text-amber-600 dark:text-amber-400">
+          Release target recorded. An application restart is required after an update is installed;
+          historical release installation is not yet automatic.
+        </p>
+      ) : null}
+    </SettingsSection>
   );
 }
 
@@ -1771,6 +1932,7 @@ export function GeneralSettingsPanel() {
           }
         />
       </SettingsSection>
+      {isElectron ? <ReleaseCatalogPanel /> : null}
     </SettingsPageContainer>
   );
 }
