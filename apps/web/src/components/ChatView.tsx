@@ -270,9 +270,11 @@ import {
   type LocalDispatchSnapshot,
   PullRequestDialogState,
   cloneComposerImageForRetry,
+  cancelTimelineFollowForUserNavigation,
   deriveLockedProvider,
   readFileAsDataUrl,
   reconcileMountedTerminalThreadIds,
+  resolveTimelineFollowUpdateAction,
   resolveThreadMetadataUpdateForNextTurn,
   resolveSendEnvMode,
   revokeBlobPreviewUrl,
@@ -3539,9 +3541,14 @@ function ChatViewContent(props: ChatViewProps) {
   } | null>(null);
   const anchorScrollRestoreFrameRef = useRef<number | null>(null);
   const cancelTimelineLiveFollowForUserNavigation = useCallback(() => {
-    anchorUserScrollGenerationRef.current += 1;
-    timelineScrollModeRef.current = "free-scrolling";
-    liveFollowUserScrollGenerationRef.current = null;
+    const nextFollowState = cancelTimelineFollowForUserNavigation({
+      mode: timelineScrollModeRef.current,
+      userScrollGeneration: anchorUserScrollGenerationRef.current,
+      liveFollowUserScrollGeneration: liveFollowUserScrollGenerationRef.current,
+    });
+    anchorUserScrollGenerationRef.current = nextFollowState.userScrollGeneration;
+    timelineScrollModeRef.current = nextFollowState.mode;
+    liveFollowUserScrollGenerationRef.current = nextFollowState.liveFollowUserScrollGeneration;
     pendingTimelineAnchorRef.current = null;
     positionedTimelineAnchorRef.current = null;
     settledTimelineAnchorRef.current = null;
@@ -3552,13 +3559,6 @@ function ChatViewContent(props: ChatViewProps) {
       anchorScrollRestoreFrameRef.current = null;
     }
   }, []);
-  const cancelTimelineLiveFollowForUserNavigationRef = useRef(
-    cancelTimelineLiveFollowForUserNavigation,
-  );
-  useEffect(() => {
-    cancelTimelineLiveFollowForUserNavigationRef.current =
-      cancelTimelineLiveFollowForUserNavigation;
-  }, [cancelTimelineLiveFollowForUserNavigation]);
   const getActiveTimelineTurnMetrics = useCallback(
     (list?: LegendListRef | null) => {
       const resolvedList = list ?? legendListRef.current;
@@ -3619,37 +3619,6 @@ function ChatViewContent(props: ChatViewProps) {
     setShowScrollToBottom(false);
     void legendListRef.current?.scrollToEnd?.({ animated });
   }, []);
-  useEffect(() => {
-    let removeListeners: (() => void) | null = null;
-    const frame = requestAnimationFrame(() => {
-      const scrollNode = legendListRef.current?.getScrollableNode();
-      if (!scrollNode) {
-        return;
-      }
-      const handleManualNavigation = () => {
-        cancelTimelineLiveFollowForUserNavigationRef.current();
-      };
-      scrollNode.addEventListener("wheel", handleManualNavigation, {
-        passive: true,
-      });
-      scrollNode.addEventListener("touchmove", handleManualNavigation, {
-        passive: true,
-      });
-      scrollNode.addEventListener("pointerdown", handleManualNavigation, {
-        passive: true,
-      });
-      removeListeners = () => {
-        scrollNode.removeEventListener("wheel", handleManualNavigation);
-        scrollNode.removeEventListener("touchmove", handleManualNavigation);
-        scrollNode.removeEventListener("pointerdown", handleManualNavigation);
-      };
-    });
-
-    return () => {
-      cancelAnimationFrame(frame);
-      removeListeners?.();
-    };
-  }, [activeThread?.id]);
 
   const onTimelineAnchorReady = useCallback((messageId: MessageId, anchorIndex: number) => {
     if (pendingTimelineAnchorRef.current === messageId) {
@@ -3770,14 +3739,25 @@ function ChatViewContent(props: ChatViewProps) {
     if (!activeThread?.id) {
       return;
     }
-    if (liveFollowUserScrollGenerationRef.current !== anchorUserScrollGenerationRef.current) {
+    if (
+      resolveTimelineFollowUpdateAction({
+        mode: timelineScrollModeRef.current,
+        userScrollGeneration: anchorUserScrollGenerationRef.current,
+        liveFollowUserScrollGeneration: liveFollowUserScrollGenerationRef.current,
+      }) === "free-scrolling"
+    ) {
       return;
     }
 
     let secondFrame: number | null = null;
     const frame = requestAnimationFrame(() => {
       secondFrame = requestAnimationFrame(() => {
-        if (liveFollowUserScrollGenerationRef.current !== anchorUserScrollGenerationRef.current) {
+        const followUpdateAction = resolveTimelineFollowUpdateAction({
+          mode: timelineScrollModeRef.current,
+          userScrollGeneration: anchorUserScrollGenerationRef.current,
+          liveFollowUserScrollGeneration: liveFollowUserScrollGenerationRef.current,
+        });
+        if (followUpdateAction === "free-scrolling") {
           return;
         }
         if (pendingTimelineAnchorRef.current !== null) {
@@ -3794,7 +3774,7 @@ function ChatViewContent(props: ChatViewProps) {
           return;
         }
 
-        if (timelineScrollModeRef.current === "anchoring-new-turn") {
+        if (followUpdateAction === "anchoring-new-turn") {
           const metrics = getActiveTimelineTurnMetrics(list);
           if (!metrics) {
             return;
@@ -3808,7 +3788,7 @@ function ChatViewContent(props: ChatViewProps) {
           return;
         }
 
-        if (timelineScrollModeRef.current !== "following-end") {
+        if (followUpdateAction !== "following-end") {
           return;
         }
         if (!timelineRealContentOverflowsViewport(list)) {
