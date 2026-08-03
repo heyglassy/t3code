@@ -5,9 +5,20 @@ import {
   createBrowseNavigationCoordinator,
   filterFilesystemBrowseEntries,
   getFilesystemBrowsePath,
+  getFilesystemSearchRoot,
+  resolveFilesystemSearchPath,
 } from "./filesystem.ts";
 
 describe("filesystem browse model", () => {
+  it("resolves global search paths from the environment root", () => {
+    expect(getFilesystemSearchRoot("MacIntel")).toBe("/");
+    expect(resolveFilesystemSearchPath("/", "Users/eulogia/t3code")).toBe("/Users/eulogia/t3code");
+    expect(getFilesystemSearchRoot("Win32")).toBe("\\");
+    expect(resolveFilesystemSearchPath("\\", "Users\\eulogia\\t3code")).toBe(
+      "\\Users\\eulogia\\t3code",
+    );
+  });
+
   it("derives the browse target and navigation state", () => {
     expect(getFilesystemBrowsePath("~/projects/t3")).toEqual({
       isBrowsing: true,

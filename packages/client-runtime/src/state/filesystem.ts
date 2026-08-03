@@ -13,6 +13,16 @@ import {
 } from "./projects.ts";
 import { createEnvironmentRpcQueryAtomFamily } from "./runtime.ts";
 
+export function getFilesystemSearchRoot(platform = ""): string {
+  return /^win(dows)?/i.test(platform) ? "\\" : "/";
+}
+
+export function resolveFilesystemSearchPath(root: string, relativePath: string): string {
+  const separator = root === "\\" ? "\\" : "/";
+  const normalizedRelativePath = relativePath.replaceAll(/[\\/]+/g, separator);
+  return `${root}${root.endsWith(separator) ? "" : separator}${normalizedRelativePath}`;
+}
+
 export function getFilesystemBrowsePath(query: string, platform = "", enabled = true) {
   const isBrowsing = enabled && isFilesystemBrowseQuery(query, platform);
   const directoryPath = isBrowsing ? getBrowseDirectoryPath(query) : "";
