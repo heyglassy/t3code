@@ -42,8 +42,8 @@ it("treats stable installs as direct invocations", () => {
 });
 
 it("re-suggests the nightly channel only for nightly builds", () => {
-  assert.equal(suggestedPackageSpec("0.0.31-nightly.20260729"), "t3@nightly");
-  assert.equal(suggestedPackageSpec("0.0.31"), "t3");
+  assert.equal(suggestedPackageSpec("0.0.31-nightly.20260729"), "@heyglassy/t3@candidate");
+  assert.equal(suggestedPackageSpec("0.0.31"), "@heyglassy/t3");
 });
 
 it("formats serve suggestions to match the launching command", () => {
@@ -53,7 +53,7 @@ it("formats serve suggestions to match the launching command", () => {
       entryPath: "/home/theo/.npm/_npx/abc/node_modules/t3/dist/bin.mjs",
       version: "0.0.31-nightly.20260729",
     }),
-    "npx t3@nightly serve",
+    "npx @heyglassy/t3@candidate serve",
   );
   assert.equal(
     formatCliCommand({
@@ -61,7 +61,7 @@ it("formats serve suggestions to match the launching command", () => {
       entryPath: "/tmp/bunx-1000-t3@latest/node_modules/t3/dist/bin.mjs",
       version: "0.0.31",
     }),
-    "bunx t3 serve",
+    "bunx @heyglassy/t3 serve",
   );
   assert.equal(
     formatCliCommand({

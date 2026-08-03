@@ -180,6 +180,7 @@ const buildCmd = Command.make(
 // ---------------------------------------------------------------------------
 
 interface PublishCommandConfig {
+  readonly packageName: string;
   readonly access: string;
   readonly tag: string;
   readonly provenance: boolean;
@@ -190,7 +191,7 @@ const createVpPmPublishArgs = (config: PublishCommandConfig): ReadonlyArray<stri
   const args = [
     "publish",
     "--filter",
-    "t3",
+    config.packageName,
     "--access",
     config.access,
     "--tag",
@@ -207,6 +208,7 @@ const createVpPmPublishArgs = (config: PublishCommandConfig): ReadonlyArray<stri
 const publishCmd = Command.make(
   "publish",
   {
+    packageName: Flag.string("package-name").pipe(Flag.withDefault(serverPackageJson.name)),
     tag: Flag.string("tag").pipe(Flag.withDefault("latest")),
     access: Flag.string("access").pipe(Flag.withDefault("public")),
     appVersion: Flag.string("app-version").pipe(Flag.optional),
@@ -242,7 +244,7 @@ const publishCmd = Command.make(
           const workspaceCatalog = workspaceConfig.catalog ?? {};
           const workspaceOverrides = workspaceConfig.overrides ?? {};
           const pkg: PackageJson = {
-            name: serverPackageJson.name,
+            name: config.packageName,
             repository: serverPackageJson.repository,
             bin: serverPackageJson.bin,
             type: serverPackageJson.type,

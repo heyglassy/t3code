@@ -43,7 +43,7 @@ const runtimePaths = (baseDir: string, version: string) => {
   const versionDir = NodePath.join(baseDir, "runtime", "versions", version);
   return {
     versionDir,
-    entryPath: NodePath.join(versionDir, "node_modules", "t3", "dist", "bin.mjs"),
+    entryPath: NodePath.join(versionDir, "node_modules", "@heyglassy", "t3", "dist", "bin.mjs"),
     sentinelPath: NodePath.join(versionDir, ".install-complete"),
   };
 };

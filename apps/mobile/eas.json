@@ -48,17 +48,8 @@
       },
       "channel": "production",
       "environment": "production",
+      "distribution": "internal",
       "autoIncrement": true
-    }
-  },
-  "submit": {
-    "production": {
-      "ios": {
-        "ascAppId": "6787819824"
-      },
-      "android": {
-        "track": "internal"
-      }
     }
   }
 }

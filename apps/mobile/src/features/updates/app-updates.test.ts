@@ -4,6 +4,7 @@ import {
   createAppUpdateLaunchCheck,
   registerHiddenUpdateTap,
   runAppUpdateCheck,
+  setAppUpdateChannel,
   type AppUpdateCheckState,
   type AppUpdateClient,
 } from "./app-updates";
@@ -13,6 +14,7 @@ vi.mock("expo-updates", () => ({
   checkForUpdateAsync: vi.fn(),
   fetchUpdateAsync: vi.fn(),
   reloadAsync: vi.fn(),
+  setUpdateRequestHeadersOverride: vi.fn(),
 }));
 
 function makeUpdateClient(overrides: Partial<AppUpdateClient> = {}): AppUpdateClient {
@@ -30,6 +32,28 @@ function makeUpdateClient(overrides: Partial<AppUpdateClient> = {}): AppUpdateCl
     ...overrides,
   };
 }
+
+describe("setAppUpdateChannel", () => {
+  it("selects an EAS channel through the declared request header", () => {
+    const setUpdateRequestHeadersOverride = vi.fn();
+    const client = makeUpdateClient({ setUpdateRequestHeadersOverride });
+
+    setAppUpdateChannel("candidate", client);
+
+    expect(setUpdateRequestHeadersOverride).toHaveBeenCalledWith({
+      "expo-channel-name": "candidate",
+    });
+  });
+
+  it("does not override headers when updates are disabled", () => {
+    const setUpdateRequestHeadersOverride = vi.fn();
+    const client = makeUpdateClient({ isEnabled: false, setUpdateRequestHeadersOverride });
+
+    setAppUpdateChannel("production", client);
+
+    expect(setUpdateRequestHeadersOverride).not.toHaveBeenCalled();
+  });
+});
 
 describe("runAppUpdateCheck", () => {
   it("downloads and restarts when a new update is available", async () => {

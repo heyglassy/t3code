@@ -9,6 +9,7 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 
 export type AppUpdateCheckState = "idle" | "checking" | "downloading" | "restarting" | "current";
+export type AppUpdateChannel = "production" | "candidate";
 
 export interface AppUpdateClient {
   readonly isEnabled: boolean;
@@ -21,6 +22,9 @@ export interface AppUpdateClient {
     readonly isRollBackToEmbedded: boolean;
   }>;
   readonly reloadAsync: () => Promise<void>;
+  readonly setUpdateRequestHeadersOverride?: (
+    requestHeaders: Record<string, string> | null,
+  ) => void;
 }
 
 interface AppUpdateCheckOptions {
@@ -49,6 +53,14 @@ interface Deferred {
 
 const HIDDEN_UPDATE_TAP_COUNT = 5;
 let appUpdateCheckInFlight: AppUpdateCheckInFlight | undefined;
+
+export function setAppUpdateChannel(
+  channel: AppUpdateChannel,
+  client: AppUpdateClient = Updates,
+): void {
+  if (!client.isEnabled || !client.setUpdateRequestHeadersOverride) return;
+  client.setUpdateRequestHeadersOverride({ "expo-channel-name": channel });
+}
 
 /**
  * Keeps the manual update affordance discoverable only to someone deliberately

@@ -39,9 +39,11 @@ import { useThemeColor } from "../../lib/useThemeColor";
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
 import { useThreadListV2Enabled } from "../threads/use-thread-list-v2-enabled";
 import {
+  type AppUpdateChannel,
   type AppUpdateCheckState,
   registerHiddenUpdateTap,
   runAppUpdateCheck,
+  setAppUpdateChannel,
 } from "../updates/app-updates";
 import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
 import { SettingsRow } from "./components/SettingsRow";
@@ -579,6 +581,13 @@ function AppSettingsSection() {
   const [updateState, setUpdateState] = useState<AppUpdateCheckState>("idle");
   const updateInFlight = useRef(false);
   const hiddenUpdateTapCount = useRef(0);
+  const preferencesResult = useAtomValue(mobilePreferencesAtom);
+  const savePreferences = useAtomSet(updateMobilePreferencesAtom);
+  const updateChannel: AppUpdateChannel =
+    AsyncResult.isSuccess(preferencesResult) &&
+    preferencesResult.value.updateChannel === "candidate"
+      ? "candidate"
+      : "production";
 
   const version = Constants.expoConfig?.version ?? "0.0.0";
   // Fall back to "production" to match resolveAppVariant in app.config.ts, so a
@@ -621,6 +630,20 @@ function AppSettingsSection() {
     }
   }, [checkForUpdate]);
 
+  const chooseUpdateChannel = useCallback(() => {
+    const switchChannel = (channel: AppUpdateChannel) => {
+      setAppUpdateChannel(channel);
+      savePreferences({ updateChannel: channel });
+      void checkForUpdate();
+    };
+
+    Alert.alert("Release channel", "Choose which production release track this app follows.", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Production", onPress: () => switchChannel("production") },
+      { text: "Candidate", onPress: () => switchChannel("candidate") },
+    ]);
+  }, [checkForUpdate, savePreferences]);
+
   const statusLabel =
     updateState === "checking"
       ? "Checking…"
@@ -655,6 +678,14 @@ function AppSettingsSection() {
     <SettingsSection title="App">
       <SettingsRow icon="internaldrive" label="Client Storage" target="SettingsClientStorage" />
       <SettingsRow icon="doc.text" label="Legal" fullScreenTarget="SettingsLegal" />
+      {Updates.isEnabled && variant === "production" ? (
+        <SettingsRow
+          icon="arrow.triangle.branch"
+          label="Release Channel"
+          value={capitalize(updateChannel)}
+          onPress={chooseUpdateChannel}
+        />
+      ) : null}
       {Updates.isEnabled ? (
         <Pressable
           accessibilityLabel={`Version ${versionLabel}`}

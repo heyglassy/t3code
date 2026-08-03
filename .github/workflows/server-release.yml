@@ -1,0 +1,115 @@
+name: Glassycode Server Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: "npm distribution channel"
+        required: true
+        default: production
+        type: choice
+        options:
+          - production
+          - candidate
+      version:
+        description: "MAJOR.MINOR.PATCH"
+        required: true
+        type: string
+      ref:
+        description: "Git ref to publish"
+        required: true
+        default: main
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: glassycode-server-${{ inputs.channel }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish @heyglassy/t3
+    runs-on: macos-15
+    timeout-minutes: 45
+    environment: releases
+    steps:
+      - name: Resolve release metadata
+        id: release
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_CHANNEL: ${{ inputs.channel }}
+        run: |
+          set -euo pipefail
+          version="${INPUT_VERSION#v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Versions must use MAJOR.MINOR.PATCH." >&2
+            exit 1
+          fi
+          if [ "$INPUT_CHANNEL" = candidate ]; then
+            version="${version}-nightly.$(date -u +%Y%m%d).${GITHUB_RUN_NUMBER}"
+            tag="candidate"
+          else
+            tag="latest"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: |
+            args:
+              - --filter=t3...
+              - --filter=@t3tools/web...
+              - --filter=@t3tools/scripts...
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Align package versions
+        run: node scripts/update-release-package-versions.ts "${{ steps.release.outputs.version }}"
+
+      - name: Build web client
+        run: vp run --filter @t3tools/web build
+
+      - name: Build server package
+        run: node apps/server/scripts/cli.ts build --verbose
+
+      - name: Build macOS resource monitor
+        run: |
+          cargo build \
+            --manifest-path native/resource-monitor/Cargo.toml \
+            --release \
+            --target aarch64-apple-darwin
+          mkdir -p apps/server/dist/resource-monitor/darwin-arm64
+          cp \
+            native/resource-monitor/target/aarch64-apple-darwin/release/t3-resource-monitor \
+            apps/server/dist/resource-monitor/darwin-arm64/t3-resource-monitor
+
+      - name: Publish npm package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          node apps/server/scripts/cli.ts publish \
+            --package-name @heyglassy/t3 \
+            --tag "${{ steps.release.outputs.tag }}" \
+            --app-version "${{ steps.release.outputs.version }}" \
+            --provenance \
+            --verbose

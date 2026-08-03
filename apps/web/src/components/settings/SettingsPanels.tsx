@@ -495,7 +495,7 @@ function AboutVersionSection() {
       {hasDesktopBridge ? (
         <SettingsRow
           title="Update track"
-          description="Stable follows full releases. Nightly follows the nightly desktop channel and can switch back to stable immediately."
+          description="Production follows approved releases. Candidate follows the preview channel and can switch back to production immediately."
           control={
             <Select
               value={selectedUpdateChannel}
@@ -509,15 +509,15 @@ function AboutVersionSection() {
                 disabled={isChangingUpdateChannel}
               >
                 <SelectValue>
-                  {selectedUpdateChannel === "nightly" ? "Nightly" : "Stable"}
+                  {selectedUpdateChannel === "nightly" ? "Candidate" : "Production"}
                 </SelectValue>
               </SelectTrigger>
               <SelectPopup align="end" alignItemWithTrigger={false}>
                 <SelectItem hideIndicator value="latest">
-                  Stable
+                  Production
                 </SelectItem>
                 <SelectItem hideIndicator value="nightly">
-                  Nightly
+                  Candidate
                 </SelectItem>
               </SelectPopup>
             </Select>

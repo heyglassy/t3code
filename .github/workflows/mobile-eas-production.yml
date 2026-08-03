@@ -9,31 +9,35 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "build (+ auto-submit to TestFlight) or update (OTA)"
+        description: "Create the private iOS build, publish an OTA, or roll back an OTA"
         required: true
         type: choice
         default: build
         options:
           - build
           - update
-      platform:
-        description: "Target platform"
+          - rollback
+      channel:
+        description: "OTA release channel"
         required: true
         type: choice
-        default: ios
+        default: production
         options:
-          - ios
-          - android
-          - all
+          - production
+          - candidate
       message:
-        description: "OTA update message (mode=update only)"
+        description: "OTA message"
+        required: false
+        type: string
+      update_group_id:
+        description: "Latest EAS update group ID (rollback mode only)"
         required: false
         type: string
 
 jobs:
   production:
     name: EAS Production ${{ inputs.mode }}
-    runs-on: blacksmith-8vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     env:
@@ -98,12 +102,12 @@ jobs:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: eas env:pull production --non-interactive
 
-      - name: Build and submit
+      - name: Build private iOS app
         if: steps.expo-token.outputs.present == 'true' && inputs.mode == 'build'
         working-directory: apps/mobile
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-        run: eas build --platform ${{ inputs.platform }} --profile production --auto-submit --non-interactive --no-wait
+        run: eas build --platform ios --profile production --non-interactive --no-wait
 
       - name: Publish OTA update
         if: steps.expo-token.outputs.present == 'true' && inputs.mode == 'update'
@@ -112,8 +116,24 @@ jobs:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |
           eas update \
-            --channel production \
+            --channel "${{ inputs.channel }}" \
             --environment production \
-            --platform ${{ inputs.platform }} \
-            --message "${{ inputs.message || format('Production OTA ({0})', github.sha) }}" \
+            --platform ios \
+            --message "${{ inputs.message || format('{0} OTA ({1})', inputs.channel, github.sha) }}" \
+            --non-interactive
+
+      - name: Roll back OTA update
+        if: steps.expo-token.outputs.present == 'true' && inputs.mode == 'rollback'
+        working-directory: apps/mobile
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          UPDATE_GROUP_ID: ${{ inputs.update_group_id }}
+        run: |
+          if [ -z "$UPDATE_GROUP_ID" ]; then
+            echo "update_group_id is required for rollback mode." >&2
+            exit 1
+          fi
+          eas update:rollback "$UPDATE_GROUP_ID" \
+            --platform ios \
+            --message "${{ inputs.message || format('Rollback {0}', inputs.channel) }}" \
             --non-interactive
