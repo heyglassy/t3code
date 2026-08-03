@@ -38,6 +38,7 @@ jobs:
   production:
     name: EAS Production ${{ inputs.mode }}
     runs-on: ubuntu-24.04
+    environment: releases
     permissions:
       contents: read
     env:
