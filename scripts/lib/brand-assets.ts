@@ -4,8 +4,8 @@ export const BRAND_ASSET_PATHS = {
   developmentUniversalIconPng: "assets/dev/blueprint-universal-1024.png",
 
   productionIconComposerProject: "assets/prod/app-icon.icon",
-  productionIosIconPng: "assets/glassy/glassycode-icon-1024.png",
-  productionMacIconPng: "assets/glassy/glassycode-icon-1024.png",
+  productionIosIconPng: "assets/glassy/glassycode-ios-icon-1024.png",
+  productionMacIconPng: "assets/glassy/glassycode-macos-icon-1024.png",
   productionLinuxIconPng: "assets/prod/black-universal-1024.png",
   productionWindowsIconIco: "assets/prod/t3-black-windows.ico",
   productionWebFaviconIco: "assets/prod/t3-black-web-favicon.ico",
@@ -14,8 +14,8 @@ export const BRAND_ASSET_PATHS = {
   productionWebAppleTouchIconPng: "assets/prod/t3-black-web-apple-touch-180.png",
 
   nightlyIconComposerProject: "assets/nightly/app-icon.icon",
-  nightlyIosIconPng: "assets/glassy/glassycode-icon-1024.png",
-  nightlyMacIconPng: "assets/glassy/glassycode-icon-1024.png",
+  nightlyIosIconPng: "assets/glassy/glassycode-ios-icon-1024.png",
+  nightlyMacIconPng: "assets/glassy/glassycode-macos-icon-1024.png",
   nightlyLinuxIconPng: "assets/nightly/nightly-universal-1024.png",
   nightlyWindowsIconIco: "assets/nightly/nightly-windows.ico",
   nightlyWebFaviconIco: "assets/nightly/nightly-web-favicon.ico",

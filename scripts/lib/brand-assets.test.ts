@@ -94,8 +94,15 @@ describe("brand-assets", () => {
       "assets/prod/app-icon.icon",
     ]);
     expect(BRAND_ASSET_PATHS.developmentDesktopIconPng).toMatch(/^assets\/dev\/blueprint-/);
-    expect(BRAND_ASSET_PATHS.nightlyMacIconPng).toBe("assets/glassy/glassycode-icon-1024.png");
-    expect(BRAND_ASSET_PATHS.productionMacIconPng).toBe("assets/glassy/glassycode-icon-1024.png");
+    expect(BRAND_ASSET_PATHS.nightlyMacIconPng).toBe(
+      "assets/glassy/glassycode-macos-icon-1024.png",
+    );
+    expect(BRAND_ASSET_PATHS.productionMacIconPng).toBe(
+      "assets/glassy/glassycode-macos-icon-1024.png",
+    );
+    expect(BRAND_ASSET_PATHS.productionIosIconPng).toBe(
+      "assets/glassy/glassycode-ios-icon-1024.png",
+    );
     expect(BRAND_ASSET_PATHS.nightlyIosIconPng).toBe(BRAND_ASSET_PATHS.productionIosIconPng);
   });
 });
