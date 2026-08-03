@@ -31,9 +31,7 @@ import {
 } from "../agent-awareness/remoteRegistration";
 import { refreshManagedRelayEnvironments } from "../cloud/managedRelayState";
 import { useClerkSettingsSheetDetent } from "../cloud/ClerkSettingsSheetDetent";
-import { hasCloudPublicConfig } from "../cloud/publicConfig";
-import { readActiveCloudRelayToken } from "../cloud/CloudAuthProvider";
-import { useDesktopRelayBrokerSession } from "../cloud/desktopRelayBroker";
+import { hasCloudPublicConfig, resolveRelayClerkTokenOptions } from "../cloud/publicConfig";
 import { withNativeGlassHeaderItem } from "../layout/native-glass-header-items";
 import { WorkspaceSidebarToolbar } from "../layout/workspace-sidebar-toolbar";
 import { runtime } from "../../lib/runtime";
@@ -152,9 +150,7 @@ function ConfiguredSettingsRouteScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const { expand: expandClerkSheet } = useClerkSettingsSheetDetent();
-  const { isLoaded, isSignedIn } = useAuth({ treatPendingAsSignedOut: false });
-  const desktopBrokerSession = useDesktopRelayBrokerSession();
-  const hasCloudSession = isSignedIn || Boolean(desktopBrokerSession);
+  const { getToken, isLoaded, isSignedIn } = useAuth({ treatPendingAsSignedOut: false });
   const { user } = useUser();
   const { savedConnectionsById } = useSavedRemoteConnections();
   const [notificationStatus, setNotificationStatus] = useState<NotificationStatus>("checking");
@@ -168,10 +164,9 @@ function ConfiguredSettingsRouteScreen() {
   const environmentCount = connections.length;
   const accountLabel = useMemo(() => {
     if (!isLoaded) return "Checking";
-    if (desktopBrokerSession && !isSignedIn) return "Connected through desktop";
     if (!isSignedIn) return "Sign in";
     return user?.primaryEmailAddress?.emailAddress ?? "Signed in";
-  }, [desktopBrokerSession, isLoaded, isSignedIn, user?.primaryEmailAddress?.emailAddress]);
+  }, [isLoaded, isSignedIn, user?.primaryEmailAddress?.emailAddress]);
 
   const refreshNotifications = useCallback(async () => {
     if (process.env.EXPO_OS !== "ios") {
@@ -196,7 +191,7 @@ function ConfiguredSettingsRouteScreen() {
       setLiveActivityStatus("checking");
       return;
     }
-    if (!hasCloudSession) {
+    if (!isSignedIn) {
       setLiveActivityStatus("signed-out");
       return;
     }
@@ -212,7 +207,7 @@ function ConfiguredSettingsRouteScreen() {
     setLiveActivityStatus(
       preferencesResult.value.liveActivitiesEnabled === false ? "disabled" : "enabled",
     );
-  }, [hasCloudSession, isLoaded, preferencesResult]);
+  }, [isLoaded, isSignedIn, preferencesResult]);
 
   const requestNotifications = useCallback(async () => {
     const result = await settleAsyncResult(() =>
@@ -289,13 +284,13 @@ function ConfiguredSettingsRouteScreen() {
   }, [navigation]);
 
   const linkEnvironments = useCallback(async () => {
-    if (!hasCloudSession) {
+    if (!isSignedIn) {
       promptSignIn();
       return;
     }
 
     setLiveActivityStatus("linking");
-    const tokenResult = await settlePromise(readActiveCloudRelayToken);
+    const tokenResult = await settlePromise(() => getToken(resolveRelayClerkTokenOptions()));
     if (tokenResult._tag === "Failure") {
       setLiveActivityStatus("disabled");
       const error = squashAtomCommandFailure(tokenResult);
@@ -355,7 +350,8 @@ function ConfiguredSettingsRouteScreen() {
   }, [
     connections,
     environmentCount,
-    hasCloudSession,
+    getToken,
+    isSignedIn,
     liveActivitiesPreferenceEnabled,
     promptSignIn,
     savePreferences,
@@ -386,8 +382,10 @@ function ConfiguredSettingsRouteScreen() {
         setLiveActivityStatus("disabled");
         void (async () => {
           let token: string | null = null;
-          if (hasCloudSession) {
-            const tokenResult = await settlePromise(readActiveCloudRelayToken);
+          if (isSignedIn) {
+            const tokenResult = await settlePromise(() =>
+              getToken(resolveRelayClerkTokenOptions()),
+            );
             if (tokenResult._tag === "Failure") {
               reportAtomCommandResult(tokenResult, {
                 label: "live activity disable token lookup",
@@ -420,7 +418,7 @@ function ConfiguredSettingsRouteScreen() {
         return;
       }
 
-      if (!hasCloudSession) {
+      if (!isSignedIn) {
         promptSignIn();
         return;
       }
@@ -429,7 +427,8 @@ function ConfiguredSettingsRouteScreen() {
     },
     [
       connections,
-      hasCloudSession,
+      getToken,
+      isSignedIn,
       linkEnvironments,
       liveActivitiesPreferenceEnabled,
       promptSignIn,
@@ -439,14 +438,14 @@ function ConfiguredSettingsRouteScreen() {
 
   const openAccount = useCallback(() => {
     if (!isLoaded) return;
-    if (!hasCloudSession) {
+    if (!isSignedIn) {
       expandClerkSheet();
       navigation.navigate("SettingsSheet", { screen: "SettingsAuth" });
       return;
     }
     expandClerkSheet();
     navigation.navigate("SettingsSheet", { screen: "SettingsAuth" });
-  }, [expandClerkSheet, hasCloudSession, isLoaded, navigation]);
+  }, [expandClerkSheet, isLoaded, isSignedIn, navigation]);
 
   return (
     <View collapsable={false} className="flex-1 bg-sheet">

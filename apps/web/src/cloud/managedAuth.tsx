@@ -13,7 +13,6 @@ import { runtime } from "../lib/runtime";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { useAtomCommand } from "../state/use-atom-command";
 import { resolveRelayClerkTokenOptions } from "./publicConfig";
-import { syncMobileRelayBrokerSession } from "./mobileRelayBrokerSync";
 
 let relayTokenProvider: (() => Promise<string | null>) | null = null;
 
@@ -47,33 +46,6 @@ export function ManagedRelayAuthProvider({ children }: { readonly children: Reac
   });
   const observedAccountRef = useRef<string | null | undefined>(undefined);
   const accountTransitionRef = useRef<Promise<void> | null>(null);
-
-  useEffect(() => {
-    if (!isLoaded || typeof window === "undefined" || !window.desktopBridge) return;
-
-    let cancelled = false;
-    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
-    const sync = async () => {
-      try {
-        const token = isSignedIn ? await getToken(resolveRelayClerkTokenOptions()) : null;
-        if (!cancelled) {
-          await syncMobileRelayBrokerSession(token);
-        }
-      } catch (error) {
-        console.warn("Could not refresh the GlassyCode Mobile relay broker session.", error);
-      } finally {
-        if (!cancelled && isSignedIn) {
-          refreshTimer = setTimeout(() => void sync(), 30_000);
-        }
-      }
-    };
-
-    void sync();
-    return () => {
-      cancelled = true;
-      if (refreshTimer !== undefined) clearTimeout(refreshTimer);
-    };
-  }, [getToken, isLoaded, isSignedIn]);
 
   useEffect(() => {
     if (!isLoaded) {

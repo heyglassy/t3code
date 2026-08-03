@@ -7,13 +7,12 @@ import {
   settlePromise,
 } from "@t3tools/client-runtime/state/runtime";
 import * as Effect from "effect/Effect";
-import { type ReactNode, useCallback, useEffect, useRef } from "react";
+import { type ReactNode, useEffect, useRef } from "react";
 
 import { environmentCatalog } from "../../connection/catalog";
 import { runtime } from "../../lib/runtime";
 import { appAtomRegistry } from "../../state/atom-registry";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
 import {
   releaseAgentAwarenessRelayTokenProvider,
   setAgentAwarenessRelayTokenProvider,
@@ -21,17 +20,6 @@ import {
 } from "../agent-awareness/remoteRegistration";
 import { clearConnectOnboardingRequest, requestConnectOnboarding } from "./connectOnboarding";
 import { resolveCloudPublicConfig, resolveRelayClerkTokenOptions } from "./publicConfig";
-import {
-  readDesktopRelayBrokerClerkToken,
-  resolveDesktopRelayBrokerHttpBaseUrl,
-  useDesktopRelayBrokerSession,
-} from "./desktopRelayBroker";
-
-let activeCloudRelayTokenProvider: (() => Promise<string | null>) | null = null;
-
-export function readActiveCloudRelayToken(): Promise<string | null> {
-  return activeCloudRelayTokenProvider?.() ?? Promise.resolve(null);
-}
 
 function resetManagedRelayTokenCache() {
   return settleAsyncResult(() =>
@@ -42,7 +30,6 @@ function resetManagedRelayTokenCache() {
 }
 
 export function deactivateCloudRelayAccount(): void {
-  activeCloudRelayTokenProvider = null;
   setAgentAwarenessRelayTokenProvider(null);
   setManagedRelaySession(appAtomRegistry, null);
 }
@@ -51,7 +38,6 @@ export function activateCloudRelayAccount(
   accountId: string,
   tokenProvider: () => Promise<string | null>,
 ): void {
-  activeCloudRelayTokenProvider = tokenProvider;
   setAgentAwarenessRelayTokenProvider(tokenProvider, accountId);
   setManagedRelaySession(appAtomRegistry, {
     accountId,
@@ -71,44 +57,15 @@ function CloudAuthBridge(props: { readonly children: ReactNode }) {
   } | null>(null);
   const observedAccountRef = useRef<string | null | undefined>(undefined);
   const accountTransitionRef = useRef<Promise<void> | null>(null);
-  const desktopBrokerSession = useDesktopRelayBrokerSession();
-  const { savedConnectionsById } = useSavedRemoteConnections();
-  const brokerConnection = desktopBrokerSession
-    ? savedConnectionsById[desktopBrokerSession.environmentId]
-    : undefined;
-  const brokerHttpBaseUrl = desktopBrokerSession
-    ? resolveDesktopRelayBrokerHttpBaseUrl(desktopBrokerSession, brokerConnection)
-    : undefined;
-  const desktopBrokerTokenProvider = useCallback(
-    () =>
-      desktopBrokerSession && brokerHttpBaseUrl
-        ? runtime.runPromise(
-            readDesktopRelayBrokerClerkToken(desktopBrokerSession, brokerHttpBaseUrl),
-          )
-        : Promise.resolve(null),
-    [brokerHttpBaseUrl, desktopBrokerSession],
-  );
 
   useEffect(() => {
     let cancelled = false;
-    if (!isLoaded || desktopBrokerSession === undefined) {
+    if (!isLoaded) {
       return;
     }
 
     const previousObservedAccount = observedAccountRef.current;
-    const activeSession =
-      isSignedIn && userId
-        ? {
-            accountId: userId,
-            provider: () => getToken(resolveRelayClerkTokenOptions()),
-          }
-        : desktopBrokerSession
-          ? {
-              accountId: desktopBrokerSession.accountId,
-              provider: desktopBrokerTokenProvider,
-            }
-          : null;
-    const nextAccount = activeSession?.accountId ?? null;
+    const nextAccount = isSignedIn && userId ? userId : null;
     observedAccountRef.current = nextAccount;
 
     // Every sign-in or account switch that completes during this session (a
@@ -153,7 +110,7 @@ function CloudAuthBridge(props: { readonly children: ReactNode }) {
       return accountTransitionRef.current;
     };
 
-    if (!activeSession) {
+    if (!isSignedIn || !userId) {
       const previous = previousTokenProviderRef.current;
       previousTokenProviderRef.current = null;
       deactivateCloudRelayAccount();
@@ -164,16 +121,15 @@ function CloudAuthBridge(props: { readonly children: ReactNode }) {
     }
 
     const previous = previousTokenProviderRef.current;
-    const tokenProvider = activeSession.provider;
-    const accountId = activeSession.accountId;
+    const tokenProvider = () => getToken(resolveRelayClerkTokenOptions());
     const activateSession = () => {
       if (cancelled) {
         return;
       }
-      previousTokenProviderRef.current = { userId: accountId, provider: tokenProvider };
-      activateCloudRelayAccount(accountId, tokenProvider);
+      previousTokenProviderRef.current = { userId, provider: tokenProvider };
+      activateCloudRelayAccount(userId, tokenProvider);
       if (isAccountTransition) {
-        requestConnectOnboarding(accountId);
+        requestConnectOnboarding(userId);
       }
     };
     const activateAfterTransition = (transition: Promise<void>) => {
@@ -188,7 +144,7 @@ function CloudAuthBridge(props: { readonly children: ReactNode }) {
     if (
       previousObservedAccount !== undefined &&
       previousObservedAccount !== null &&
-      previousObservedAccount !== accountId
+      previousObservedAccount !== userId
     ) {
       previousTokenProviderRef.current = null;
       deactivateCloudRelayAccount();
@@ -200,15 +156,7 @@ function CloudAuthBridge(props: { readonly children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [
-    desktopBrokerSession,
-    desktopBrokerTokenProvider,
-    getToken,
-    isLoaded,
-    isSignedIn,
-    removeRelayEnvironments,
-    userId,
-  ]);
+  }, [getToken, isLoaded, isSignedIn, removeRelayEnvironments, userId]);
 
   useEffect(
     () => () => {

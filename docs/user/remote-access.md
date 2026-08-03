@@ -60,18 +60,6 @@ If the copied link points directly at `http://192.168.x.y:3773`, open it from a 
 
 In the mobile app's **Add Environment** form, a numeric IP address without a scheme uses HTTP. Include `https://` explicitly when the backend is served over HTTPS.
 
-### Using the Desktop T3 Connect Sign-In on Mobile
-
-GlassyCode Mobile can use the T3 Connect account already signed in on GlassyCode Desktop. Pair the
-phone directly with the desktop environment first, then open **Settings** → **T3 Account** on the
-phone and choose **Use GlassyCode Desktop**.
-
-The phone receives a device-bound, revocable authorization and renews its short-lived relay access
-automatically while the desktop is open, signed in, and reachable. After T3 Connect discovers the
-desktop's managed endpoint, mobile uses that endpoint for renewal away from the local network. It
-does not prompt for a password every 30 minutes. Disconnect the authorization from the mobile
-account screen, or revoke the GlassyCode Mobile client from the desktop's connection settings.
-
 ### Tailscale Endpoints
 
 When the desktop app can detect Tailscale, it adds Tailnet endpoints to the reachable endpoint list.
