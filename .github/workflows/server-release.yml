@@ -103,6 +103,12 @@ jobs:
             native/resource-monitor/target/aarch64-apple-darwin/release/t3-resource-monitor \
             apps/server/dist/resource-monitor/darwin-arm64/t3-resource-monitor
 
+      - name: Configure npm registry authentication
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: package.json
+          registry-url: https://registry.npmjs.org
+
       - name: Publish npm package
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
