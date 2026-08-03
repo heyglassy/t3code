@@ -1,7 +1,10 @@
 "use client";
 
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { canCreateProjectInEnvironment } from "@t3tools/client-runtime/operations/projects";
+import {
+  canCreateProjectInEnvironment,
+  getAddProjectCloneInitialQuery,
+} from "@t3tools/client-runtime/operations/projects";
 import { connectionStatusText } from "@t3tools/client-runtime/connection";
 import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
 import {
@@ -530,6 +533,7 @@ function OpenCommandPaletteDialog(props: {
   const navigate = useNavigate();
   const { clearOpenIntent, openIntent, openOverlayMode, setOpen } = props;
   const [query, setQuery] = useState("");
+  const commandInputRef = useRef<HTMLInputElement>(null);
   const deferredQuery = useDeferredValue(query);
   const isActionsOnly = deferredQuery.startsWith(">");
   const [highlightedItemValue, setHighlightedItemValue] = useState<string | null>(null);
@@ -592,6 +596,11 @@ function OpenCommandPaletteDialog(props: {
   );
   const [isPickingProjectFolder, setIsPickingProjectFolder] = useState(false);
   const [addProjectCloneFlow, setAddProjectCloneFlow] = useState<AddProjectCloneFlow | null>(null);
+  useLayoutEffect(() => {
+    if (addProjectCloneFlow?.step === "confirm") {
+      commandInputRef.current?.select();
+    }
+  }, [addProjectCloneFlow?.step]);
   const [isRemoteProjectLookingUp, setIsRemoteProjectLookingUp] = useState(false);
   const [isRemoteProjectCloning, setIsRemoteProjectCloning] = useState(false);
   const projectGroupingSettings = useMemo(
@@ -1660,8 +1669,19 @@ function OpenCommandPaletteDialog(props: {
     ],
   );
 
-  function getDefaultCloneParentPath(environmentId: EnvironmentId): string {
-    return getAddProjectInitialQueryForEnvironment(environmentId);
+  function getDefaultClonePath(input: {
+    readonly environmentId: EnvironmentId;
+    readonly repositoryName?: string | null;
+    readonly remoteUrl?: string | null;
+  }): string {
+    const environment = environments.find(
+      (candidate) => candidate.environmentId === input.environmentId,
+    );
+    return getAddProjectCloneInitialQuery({
+      baseDirectory: environment?.serverConfig?.settings?.cloneProjectBaseDirectory,
+      repositoryName: input.repositoryName,
+      remoteUrl: input.remoteUrl,
+    });
   }
 
   async function submitAddProjectCloneFlow(destinationPathInput?: string): Promise<void> {
@@ -1687,7 +1707,10 @@ function OpenCommandPaletteDialog(props: {
 
       const provider = remoteProjectSourceProvider(addProjectCloneFlow.source);
       if (!provider) {
-        const destinationPath = getDefaultCloneParentPath(addProjectCloneFlow.environmentId);
+        const destinationPath = getDefaultClonePath({
+          environmentId: addProjectCloneFlow.environmentId,
+          remoteUrl: rawRepository,
+        });
         setAddProjectCloneFlow({
           step: "confirm",
           environmentId: addProjectCloneFlow.environmentId,
@@ -1724,7 +1747,11 @@ function OpenCommandPaletteDialog(props: {
         return;
       }
       const repository = lookupResult.value;
-      const destinationPath = getDefaultCloneParentPath(addProjectCloneFlow.environmentId);
+      const destinationPath = getDefaultClonePath({
+        environmentId: addProjectCloneFlow.environmentId,
+        repositoryName: repository.nameWithOwner,
+        remoteUrl: repository.sshUrl,
+      });
       setAddProjectCloneFlow({
         step: "confirm",
         environmentId: addProjectCloneFlow.environmentId,
@@ -2240,6 +2267,7 @@ function OpenCommandPaletteDialog(props: {
       footerTrailing={footerTrailing}
       inputAccessory={inputAccessory}
       inputProps={{
+        ref: commandInputRef,
         className:
           addProjectCloneFlow?.step === "repository"
             ? "pe-32"

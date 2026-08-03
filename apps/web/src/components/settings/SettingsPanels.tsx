@@ -610,6 +610,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.addProjectBaseDirectory !== DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory
         ? ["Add project base directory"]
         : []),
+      ...(settings.cloneProjectBaseDirectory !== DEFAULT_UNIFIED_SETTINGS.cloneProjectBaseDirectory
+        ? ["Remote clone directory"]
+        : []),
       ...(settings.confirmThreadArchive !== DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive
         ? ["Archive confirmation"]
         : []),
@@ -625,6 +628,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.confirmThreadArchive,
       settings.confirmThreadDelete,
       settings.addProjectBaseDirectory,
+      settings.cloneProjectBaseDirectory,
       settings.defaultThreadEnvMode,
       settings.newWorktreesStartFromOrigin,
       settings.diffIgnoreWhitespace,
@@ -669,6 +673,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       defaultThreadEnvMode: DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode,
       newWorktreesStartFromOrigin: DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin,
       addProjectBaseDirectory: DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory,
+      cloneProjectBaseDirectory: DEFAULT_UNIFIED_SETTINGS.cloneProjectBaseDirectory,
       confirmThreadArchive: DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive,
       confirmThreadDelete: DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete,
       textGenerationModelSelection: DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
@@ -1536,6 +1541,34 @@ export function GeneralSettingsPanel() {
               placeholder="~/"
               spellCheck={false}
               aria-label="Add project base directory"
+            />
+          }
+        />
+
+        <SettingsRow
+          title="Remote project clones start in"
+          description='Leave empty to clone to "~/repository-name".'
+          resetAction={
+            settings.cloneProjectBaseDirectory !==
+            DEFAULT_UNIFIED_SETTINGS.cloneProjectBaseDirectory ? (
+              <SettingResetButton
+                label="remote clone directory"
+                onClick={() =>
+                  updateSettings({
+                    cloneProjectBaseDirectory: DEFAULT_UNIFIED_SETTINGS.cloneProjectBaseDirectory,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <DraftInput
+              className="w-full sm:w-72"
+              value={settings.cloneProjectBaseDirectory}
+              onCommit={(next) => updateSettings({ cloneProjectBaseDirectory: next })}
+              placeholder="~/"
+              spellCheck={false}
+              aria-label="Remote project clone base directory"
             />
           }
         />

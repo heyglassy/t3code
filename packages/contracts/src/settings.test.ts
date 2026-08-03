@@ -179,6 +179,19 @@ describe("ServerSettings worktree defaults", () => {
   });
 });
 
+describe("ServerSettings clone directory", () => {
+  it("defaults remote clones to the user's home directory", () => {
+    expect(decodeServerSettings({}).cloneProjectBaseDirectory).toBe("");
+  });
+
+  it("trims clone directory updates", () => {
+    expect(
+      decodeServerSettingsPatch({ cloneProjectBaseDirectory: "  ~/Development  " })
+        .cloneProjectBaseDirectory,
+    ).toBe("~/Development");
+  });
+});
+
 describe("ServerSettings.sourceControlWritingStyle", () => {
   it("defaults all style settings for legacy configs", () => {
     const settings = decodeServerSettings({});
