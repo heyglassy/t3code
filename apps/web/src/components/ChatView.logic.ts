@@ -106,6 +106,17 @@ export function buildLoadingThreadFromShell(shell: ThreadShell): Thread {
   };
 }
 
+export function shouldMarkThreadVisited(input: {
+  threadUpdatedAt: string;
+  lastVisitedAt?: string | undefined;
+}): boolean {
+  const threadUpdatedAt = Date.parse(input.threadUpdatedAt);
+  if (Number.isNaN(threadUpdatedAt)) return false;
+
+  const lastVisitedAt = input.lastVisitedAt ? Date.parse(input.lastVisitedAt) : Number.NaN;
+  return Number.isNaN(lastVisitedAt) || lastVisitedAt < threadUpdatedAt;
+}
+
 export function shouldWriteThreadErrorToCurrentServerThread(input: {
   activeServerThread:
     | {
