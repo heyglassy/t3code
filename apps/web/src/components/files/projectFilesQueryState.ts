@@ -1,6 +1,7 @@
 import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import type {
   EnvironmentId,
+  ProjectFileWatchEvent,
   ProjectListEntriesResult,
   ProjectReadFileResult,
 } from "@t3tools/contracts";
@@ -18,6 +19,9 @@ const EMPTY_PROJECT_FILE_PATH = "";
 const EMPTY_PROJECT_FILE_QUERY_ATOM = Atom.make(
   AsyncResult.initial<ProjectReadFileResult, never>(false),
 ).pipe(Atom.withLabel("project-file-query:empty"));
+const EMPTY_PROJECT_FILE_CHANGE_ATOM = Atom.make(
+  AsyncResult.initial<ProjectFileWatchEvent, never>(false),
+).pipe(Atom.withLabel("project-file-changes:empty"));
 function optimisticFileAtom(environmentId: EnvironmentId, cwd: string, relativePath: string) {
   return projectEnvironment.optimisticFile({ environmentId, cwd, relativePath });
 }
@@ -187,4 +191,19 @@ export function useProjectFileQuery(
     isPending: result.waiting,
     refresh,
   };
+}
+
+export function useProjectFileChanges(
+  environmentId: EnvironmentId,
+  cwd: string,
+  relativePath: string,
+  enabled = true,
+): ProjectFileWatchEvent | null {
+  const atom = enabled
+    ? projectEnvironment.fileChanges({
+        environmentId,
+        input: { cwd, relativePath },
+      })
+    : EMPTY_PROJECT_FILE_CHANGE_ATOM;
+  return Option.getOrNull(AsyncResult.value(useAtomValue(atom)));
 }

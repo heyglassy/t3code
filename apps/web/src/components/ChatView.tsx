@@ -12,6 +12,7 @@ import {
   type ServerProvider,
   type ResolvedKeybindingsConfig,
   type ScopedThreadRef,
+  type T3ProjectFileScript,
   type ThreadId,
   type TurnId,
   type KeybindingCommand,
@@ -158,8 +159,10 @@ import { stackedThreadToast, toastManager } from "./ui/toast";
 import { decodeProjectScriptKeybindingRule } from "~/lib/projectScriptKeybindings";
 import { type NewProjectScriptInput } from "./ProjectScriptsControl";
 import {
+  areProjectScriptsEqual,
   buildProjectScript,
   commandForProjectScript,
+  mergeT3ProjectScripts,
   nextProjectScriptId,
   projectScriptIdFromCommand,
 } from "~/projectScripts";
@@ -2972,6 +2975,28 @@ function ChatViewContent(props: ChatViewProps) {
     },
     [activeProject, persistProjectScripts],
   );
+  const syncProjectScriptsFromFile = useCallback(
+    async (
+      fileScripts: ReadonlyArray<T3ProjectFileScript>,
+    ): Promise<AtomCommandResult<void, unknown>> => {
+      if (!activeProject) return AsyncResult.success(undefined);
+      const nextScripts = mergeT3ProjectScripts(activeProject.scripts, fileScripts);
+      if (areProjectScriptsEqual(activeProject.scripts, nextScripts)) {
+        return AsyncResult.success(undefined);
+      }
+      return mapAtomCommandResult(
+        await updateProject({
+          environmentId,
+          input: {
+            projectId: activeProject.id,
+            scripts: nextScripts,
+          },
+        }),
+        () => undefined,
+      );
+    },
+    [activeProject, environmentId, updateProject],
+  );
   const updateProjectScript = useCallback(
     async (
       scriptId: string,
@@ -5767,6 +5792,7 @@ function ChatViewContent(props: ChatViewProps) {
             onRunProjectScript={runProjectScript}
             onAddProjectScript={saveProjectScript}
             onUpdateProjectScript={updateProjectScript}
+            onSyncProjectScripts={syncProjectScriptsFromFile}
             onDeleteProjectScript={deleteProjectScript}
           />
         </header>

@@ -36,6 +36,7 @@ import {
   type EnvironmentIdentificationMode,
   MAX_GLASS_OPACITY,
   MIN_GLASS_OPACITY,
+  type ProjectScriptSource,
 } from "@t3tools/contracts/settings";
 import {
   getBackgroundActivityBaseProfile,
@@ -159,6 +160,11 @@ const ENVIRONMENT_IDENTIFICATION_LABELS: Record<EnvironmentIdentificationMode, s
   artwork: "Artwork",
   pill: "Version pill",
   none: "None",
+};
+
+const PROJECT_SCRIPT_SOURCE_LABELS: Record<ProjectScriptSource, string> = {
+  ui: "Saved actions",
+  "t3-json": "t3.json",
 };
 
 const TIMESTAMP_FORMAT_LABELS = {
@@ -585,6 +591,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode
         ? ["Project Grouping"]
         : []),
+      ...(settings.projectScriptSource !== DEFAULT_UNIFIED_SETTINGS.projectScriptSource
+        ? ["Project action source"]
+        : []),
       ...(settings.wordWrap !== DEFAULT_UNIFIED_SETTINGS.wordWrap ? ["Word wrap"] : []),
       ...(settings.diffIgnoreWhitespace !== DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace
         ? ["Diff whitespace changes"]
@@ -637,6 +646,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.enableAssistantStreaming,
       settings.enableProviderUpdateChecks,
       settings.sidebarProjectGroupingMode,
+      settings.projectScriptSource,
       settings.sidebarThreadPreviewCount,
       settings.timestampFormat,
       settings.wordWrap,
@@ -663,6 +673,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity,
       sidebarThreadPreviewCount: DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount,
       sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
+      projectScriptSource: DEFAULT_UNIFIED_SETTINGS.projectScriptSource,
       autoOpenPlanSidebar: DEFAULT_UNIFIED_SETTINGS.autoOpenPlanSidebar,
       enableAssistantStreaming: DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming,
       enableProviderUpdateChecks: DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks,
@@ -1208,6 +1219,47 @@ export function GeneralSettingsPanel() {
               }}
               aria-label="Project grouping"
             />
+          }
+        />
+
+        <SettingsRow
+          title="Project action source"
+          description="Choose whether project actions stay saved in T3 Code or follow scripts declared in t3.json. Saved actions are the default."
+          resetAction={
+            settings.projectScriptSource !== DEFAULT_UNIFIED_SETTINGS.projectScriptSource ? (
+              <SettingResetButton
+                label="project action source"
+                onClick={() =>
+                  updateSettings({
+                    projectScriptSource: DEFAULT_UNIFIED_SETTINGS.projectScriptSource,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Select
+              value={settings.projectScriptSource}
+              onValueChange={(value) => {
+                if (value === "ui" || value === "t3-json") {
+                  updateSettings({ projectScriptSource: value });
+                }
+              }}
+            >
+              <SelectTrigger className="w-full sm:w-44" aria-label="Project action source">
+                <SelectValue>
+                  {PROJECT_SCRIPT_SOURCE_LABELS[settings.projectScriptSource]}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                <SelectItem hideIndicator value="ui">
+                  {PROJECT_SCRIPT_SOURCE_LABELS.ui}
+                </SelectItem>
+                <SelectItem hideIndicator value="t3-json">
+                  {PROJECT_SCRIPT_SOURCE_LABELS["t3-json"]}
+                </SelectItem>
+              </SelectPopup>
+            </Select>
           }
         />
 

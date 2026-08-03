@@ -11,6 +11,7 @@ import {
   nextProjectScriptId,
   primaryProjectScript,
   projectScriptIdFromCommand,
+  mergeT3ProjectScripts,
 } from "./projectScripts";
 
 describe("projectScripts helpers", () => {
@@ -128,5 +129,97 @@ describe("projectScripts helpers", () => {
         worktreePath: null,
       }),
     ).toBe("/repo");
+  });
+
+  it("merges t3.json scripts while preserving UI action ids", () => {
+    const merged = mergeT3ProjectScripts(
+      [
+        {
+          id: "dev-server",
+          name: "Dev server",
+          command: "old command",
+          icon: "debug",
+          runOnWorktreeCreate: true,
+        },
+        {
+          id: "local-only",
+          name: "Local only",
+          command: "echo local",
+          icon: "play",
+          runOnWorktreeCreate: false,
+        },
+      ],
+      [
+        {
+          name: "Dev server",
+          command: "pnpm dev",
+          icon: "build",
+          runOnWorktreeCreate: true,
+        },
+        {
+          name: "Checks",
+          command: "pnpm lint",
+          icon: "lint",
+        },
+      ],
+    );
+
+    expect(merged).toEqual([
+      {
+        id: "dev-server",
+        name: "Dev server",
+        command: "pnpm dev",
+        icon: "build",
+        runOnWorktreeCreate: true,
+      },
+      {
+        id: "local-only",
+        name: "Local only",
+        command: "echo local",
+        icon: "play",
+        runOnWorktreeCreate: false,
+      },
+      {
+        id: "checks",
+        name: "Checks",
+        command: "pnpm lint",
+        icon: "lint",
+        runOnWorktreeCreate: false,
+      },
+    ]);
+  });
+
+  it("disables UI setup actions when t3.json declares no setup script", () => {
+    const merged = mergeT3ProjectScripts(
+      [
+        {
+          id: "ui-setup",
+          name: "UI setup",
+          command: "pnpm install",
+          icon: "configure",
+          runOnWorktreeCreate: true,
+        },
+      ],
+      [{ name: "Dev", command: "pnpm dev" }],
+    );
+
+    expect(merged[0]?.runOnWorktreeCreate).toBe(false);
+  });
+
+  it("preserves an action id when a t3.json script is renamed", () => {
+    const merged = mergeT3ProjectScripts(
+      [
+        {
+          id: "dev-server",
+          name: "Old name",
+          command: "pnpm dev",
+          icon: "debug",
+          runOnWorktreeCreate: false,
+        },
+      ],
+      [{ name: "Dev", command: "pnpm dev" }],
+    );
+
+    expect(merged[0]).toMatchObject({ id: "dev-server", name: "Dev" });
   });
 });
