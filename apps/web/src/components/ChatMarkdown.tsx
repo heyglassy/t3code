@@ -52,7 +52,8 @@ import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "./ui/collapsi
 import { ScrollArea } from "./ui/scroll-area";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu";
 import { stackedThreadToast, toastManager } from "./ui/toast";
-import { useOpenInPreferredEditor } from "../editorPreferences";
+import { useOpenInDefaultApp, useOpenInPreferredEditor } from "../editorPreferences";
+import { isTerminalLinkActivation } from "../terminal-links";
 import { resolveDiffThemeName, type DiffThemeName } from "../lib/diffRendering";
 import { fnv1a32 } from "../lib/diffRendering";
 import { LRUCache } from "../lib/lruCache";
@@ -743,6 +744,7 @@ interface MarkdownFileLinkProps {
   theme: "light" | "dark";
   threadRef?: ScopedThreadRef | undefined;
   onOpen: (targetPath: string) => Promise<AtomCommandResult<unknown, unknown>>;
+  onOpenInDefaultApp: (targetPath: string) => Promise<AtomCommandResult<unknown, unknown>>;
   onOpenInBrowser?: (() => Promise<AtomCommandResult<unknown, unknown>>) | undefined;
   className?: string | undefined;
 }
@@ -1026,6 +1028,7 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
   theme,
   threadRef,
   onOpen,
+  onOpenInDefaultApp,
   onOpenInBrowser,
   className,
 }: MarkdownFileLinkProps) {
@@ -1063,6 +1066,41 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
       }
     })();
   }, [onOpen, targetPath]);
+
+  const handleOpenInDefaultApp = useCallback(() => {
+    void (async () => {
+      try {
+        const result = await onOpenInDefaultApp(iconPath);
+        if (result._tag === "Success" || isAtomCommandInterrupted(result)) {
+          return;
+        }
+        reportMarkdownActionFailure(
+          { operation: "open-file-in-default-app", target: targetPath },
+          result.cause,
+        );
+        const error = squashAtomCommandFailure(result);
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Unable to open file in default app",
+            description: error instanceof Error ? error.message : "An error occurred.",
+          }),
+        );
+      } catch (cause) {
+        reportMarkdownActionFailure(
+          { operation: "open-file-in-default-app", target: targetPath },
+          cause,
+        );
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Unable to open file in default app",
+            description: cause instanceof Error ? cause.message : "An error occurred.",
+          }),
+        );
+      }
+    })();
+  }, [iconPath, onOpenInDefaultApp, targetPath]);
 
   const handleOpenInFilePreview = useCallback(() => {
     if (!threadRef || !workspaceRelativePath) {
@@ -1161,6 +1199,7 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
         const clicked = await api.contextMenu.show(
           [
             { id: "open", label: "Open in editor" },
+            { id: "open-in-default-app", label: "Open in default app" },
             ...(onOpenInBrowser
               ? ([{ id: "open-in-browser", label: "Open in integrated browser" }] as const)
               : []),
@@ -1172,6 +1211,10 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
 
         if (clicked === "open") {
           handleOpenInEditor();
+          return;
+        }
+        if (clicked === "open-in-default-app") {
+          handleOpenInDefaultApp();
           return;
         }
         if (clicked === "open-in-browser") {
@@ -1192,7 +1235,15 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
         );
       }
     },
-    [displayPath, handleCopy, handleOpenInBrowser, handleOpenInEditor, onOpenInBrowser, targetPath],
+    [
+      displayPath,
+      handleCopy,
+      handleOpenInBrowser,
+      handleOpenInDefaultApp,
+      handleOpenInEditor,
+      onOpenInBrowser,
+      targetPath,
+    ],
   );
 
   return (
@@ -1204,6 +1255,12 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
             className={cn(CHAT_FILE_TAG_CHIP_CLASS_NAME, MARKDOWN_FILE_LINK_CLASS_NAME, className)}
             data-markdown-copy={copyMarkdown}
             onClick={(event) => {
+              if (isTerminalLinkActivation(event)) {
+                event.preventDefault();
+                event.stopPropagation();
+                handleOpenInDefaultApp();
+                return;
+              }
               event.preventDefault();
               event.stopPropagation();
               if (onOpenInBrowser) {
@@ -1246,6 +1303,7 @@ function areMarkdownFileLinkPropsEqual(
     previous.theme === next.theme &&
     previous.threadRef === next.threadRef &&
     previous.onOpen === next.onOpen &&
+    previous.onOpenInDefaultApp === next.onOpenInDefaultApp &&
     previous.onOpenInBrowser === next.onOpenInBrowser &&
     previous.className === next.className
   );
@@ -1275,6 +1333,7 @@ function ChatMarkdown({
     environmentId,
     serverConfig?.availableEditors ?? [],
   );
+  const openInDefaultApp = useOpenInDefaultApp(environmentId);
   const diffThemeName = resolveDiffThemeName(resolvedTheme);
   const markdownFileLinkMetaByHref = useMemo(() => {
     const metaByHref = new Map<
@@ -1393,6 +1452,7 @@ function ChatMarkdown({
           theme={resolvedTheme}
           threadRef={threadRef}
           onOpen={openInPreferredEditor}
+          onOpenInDefaultApp={openInDefaultApp}
           onOpenInBrowser={
             threadRef &&
             isPreviewSupportedInRuntime() &&
@@ -1585,6 +1645,7 @@ function ChatMarkdown({
     isStreaming,
     markdownFileLinkMetaByHref,
     onTaskListChange,
+    openInDefaultApp,
     openInPreferredEditor,
     openExternalLinkInPreview,
     openMarkdownFileInPreview,

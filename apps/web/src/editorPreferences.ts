@@ -113,3 +113,34 @@ export function useOpenInPreferredEditor(
     [availableEditors, environmentId, openInEditor],
   );
 }
+
+export function useOpenInDefaultApp(environmentId: EnvironmentId | null) {
+  const openInEditor = useAtomCommand(shellEnvironment.openInEditor, {
+    reportFailure: false,
+  });
+
+  return useCallback(
+    (targetPath: string) => {
+      if (environmentId === null) {
+        return Promise.resolve(
+          AsyncResult.failure(
+            Cause.fail(
+              new PreferredEditorEnvironmentRequiredError({
+                targetPath,
+              }),
+            ),
+          ),
+        );
+      }
+
+      return openInEditor({
+        environmentId,
+        input: {
+          cwd: targetPath,
+          editor: "file-manager",
+        },
+      });
+    },
+    [environmentId, openInEditor],
+  );
+}
