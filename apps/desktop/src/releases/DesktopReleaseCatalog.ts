@@ -3,8 +3,9 @@ import type {
   DesktopReleaseSelectionResult,
   ReleaseCatalog,
 } from "@t3tools/contracts";
-import { ReleaseCatalogSchema } from "@t3tools/contracts";
+import { NonNegativeInt, ReleaseCatalogSchema, TrimmedNonEmptyString } from "@t3tools/contracts";
 import * as Context from "effect/Context";
+import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -13,6 +14,11 @@ import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest";
 
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
+import {
+  beginReleaseLaunch,
+  markReleaseLaunchHealthy,
+  type ReleaseLaunchState,
+} from "./releaseLaunchHealth.ts";
 import { selectReleaseTarget, validateDesktopReleaseTarget } from "./releaseSelection.ts";
 
 export const DEFAULT_RELEASE_CATALOG_SOURCE =
@@ -29,19 +35,42 @@ export class DesktopReleaseCatalogReadError extends Schema.TaggedErrorClass<Desk
 
 const ReleaseCatalogPreferencesSchema = Schema.Struct({
   source: Schema.optionalKey(Schema.String),
-  selectedTargetId: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  selectedTargetId: Schema.optionalKey(Schema.NullOr(TrimmedNonEmptyString)),
+  selectedTargetVersion: Schema.optionalKey(Schema.NullOr(TrimmedNonEmptyString)),
+  launchHealth: Schema.optionalKey(
+    Schema.Struct({
+      consecutiveFailures: NonNegativeInt,
+      startedAtMs: Schema.NullOr(NonNegativeInt),
+    }),
+  ),
+  autoRevertNotice: Schema.optionalKey(
+    Schema.NullOr(
+      Schema.Struct({
+        fromVersion: TrimmedNonEmptyString,
+        reason: Schema.String,
+      }),
+    ),
+  ),
 });
 type ReleaseCatalogPreferences = typeof ReleaseCatalogPreferencesSchema.Type;
 
 const decodeCatalog = Schema.decodeUnknownEffect(ReleaseCatalogSchema);
-const decodePreferencesJson = Schema.decodeEffect(
-  Schema.fromJsonString(ReleaseCatalogPreferencesSchema),
-);
 const encodePreferencesJson = Schema.encodeEffect(
   Schema.fromJsonString(ReleaseCatalogPreferencesSchema),
 );
+const decodeReleaseCatalogPreferencesSync = Schema.decodeUnknownSync(
+  ReleaseCatalogPreferencesSchema,
+);
 const decodeCatalogJson = Schema.decodeEffect(Schema.fromJsonString(ReleaseCatalogSchema));
 const PREFERENCES_FILE_NAME = "release-catalog-settings.json";
+
+export function decodeReleaseCatalogPreferences(raw: string): ReleaseCatalogPreferences | null {
+  try {
+    return decodeReleaseCatalogPreferencesSync(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
 
 export class DesktopReleaseCatalog extends Context.Service<
   DesktopReleaseCatalog,
@@ -50,6 +79,12 @@ export class DesktopReleaseCatalog extends Context.Service<
     readonly setSource: (source: string) => Effect.Effect<DesktopReleaseCatalogState>;
     readonly selectTarget: (targetId: string) => Effect.Effect<DesktopReleaseSelectionResult>;
     readonly clearTarget: Effect.Effect<DesktopReleaseCatalogState>;
+    /** Records a pinned launch before Electron is allowed to create a renderer. */
+    readonly prepareLaunch: Effect.Effect<void>;
+    /** Clears the pending launch after the first main renderer reveal. */
+    readonly markHealthyStartup: Effect.Effect<void>;
+    /** Returns the state and consumes a pending boot-loop notice once. */
+    readonly consumeAutoRevertNotice: Effect.Effect<DesktopReleaseCatalogState>;
   }
 >()("@t3tools/desktop/releases/DesktopReleaseCatalog") {}
 
@@ -107,7 +142,7 @@ function readPreferences(
   environment: DesktopEnvironment.DesktopEnvironment["Service"],
 ): Effect.Effect<ReleaseCatalogPreferences> {
   return fileSystem.readFileString(preferencesPath(environment)).pipe(
-    Effect.flatMap((raw) => decodePreferencesJson(raw)),
+    Effect.map((raw) => decodeReleaseCatalogPreferences(raw) ?? {}),
     Effect.orElseSucceed(() => ({})),
   );
 }
@@ -120,9 +155,41 @@ function writePreferences(
   return Effect.gen(function* () {
     yield* fileSystem.makeDirectory(environment.stateDir, { recursive: true });
     const encoded = yield* encodePreferencesJson(preferences);
-    yield* fileSystem.writeFileString(preferencesPath(environment), `${encoded}\n`);
+    const path = preferencesPath(environment);
+    const tempPath = `${path}.${process.pid}.tmp`;
+    yield* fileSystem.writeFileString(tempPath, `${encoded}\n`);
+    yield* fileSystem.rename(tempPath, path);
   }).pipe(Effect.orDie);
 }
+
+function launchStateFromPreferences(preferences: ReleaseCatalogPreferences): ReleaseLaunchState {
+  return {
+    selectedTargetId: preferences.selectedTargetId ?? null,
+    selectedTargetVersion: preferences.selectedTargetVersion ?? null,
+    health: preferences.launchHealth ?? { consecutiveFailures: 0, startedAtMs: null },
+    autoRevertNotice: preferences.autoRevertNotice ?? null,
+  };
+}
+
+function preferencesFromLaunchState(
+  preferences: ReleaseCatalogPreferences,
+  state: ReleaseLaunchState,
+): ReleaseCatalogPreferences {
+  return {
+    ...preferences,
+    selectedTargetId: state.selectedTargetId,
+    selectedTargetVersion: state.selectedTargetVersion,
+    launchHealth: state.health,
+    autoRevertNotice: state.autoRevertNotice,
+  };
+}
+
+const writePreferencesBestEffort = (
+  fileSystem: FileSystem.FileSystem,
+  environment: DesktopEnvironment.DesktopEnvironment["Service"],
+  preferences: ReleaseCatalogPreferences,
+) =>
+  writePreferences(fileSystem, environment, preferences).pipe(Effect.catchCause(() => Effect.void));
 
 export const layer = Layer.effect(
   DesktopReleaseCatalog,
@@ -151,6 +218,7 @@ export const layer = Layer.effect(
         source,
         catalog,
         selectedTargetId,
+        autoRevertNotice: preferences.autoRevertNotice ?? null,
         restartRequired: selectedTargetId !== null,
         error:
           catalog === null
@@ -160,6 +228,49 @@ export const layer = Layer.effect(
     });
 
     const get = readPreferences(fileSystem, environment).pipe(Effect.flatMap(readState));
+
+    const prepareLaunch = Effect.gen(function* () {
+      const preferences = yield* readPreferences(fileSystem, environment);
+      const decision = beginReleaseLaunch(
+        launchStateFromPreferences(preferences),
+        yield* Clock.currentTimeMillis,
+      );
+      yield* writePreferencesBestEffort(
+        fileSystem,
+        environment,
+        preferencesFromLaunchState(preferences, decision.state),
+      );
+      if (decision.revertedFromVersion !== null) {
+        yield* Effect.logWarning(
+          "reverted pinned desktop release after repeated unhealthy launches",
+          {
+            version: decision.revertedFromVersion,
+            reason: decision.state.autoRevertNotice?.reason,
+          },
+        );
+      }
+    });
+
+    const markHealthyStartup = Effect.gen(function* () {
+      const preferences = yield* readPreferences(fileSystem, environment);
+      const state = markReleaseLaunchHealthy(launchStateFromPreferences(preferences));
+      yield* writePreferencesBestEffort(
+        fileSystem,
+        environment,
+        preferencesFromLaunchState(preferences, state),
+      );
+    });
+
+    const consumeAutoRevertNotice = Effect.gen(function* () {
+      const preferences = yield* readPreferences(fileSystem, environment);
+      const state = yield* readState(preferences);
+      if (state.autoRevertNotice === null) return state;
+      yield* writePreferencesBestEffort(fileSystem, environment, {
+        ...preferences,
+        autoRevertNotice: null,
+      });
+      return { ...state, autoRevertNotice: state.autoRevertNotice };
+    });
 
     return DesktopReleaseCatalog.of({
       get,
@@ -189,6 +300,8 @@ export const layer = Layer.effect(
             yield* writePreferences(fileSystem, environment, {
               ...preferences,
               selectedTargetId: selection.selectedTargetId,
+              selectedTargetVersion: entry?.version ?? null,
+              launchHealth: { consecutiveFailures: 0, startedAtMs: null },
             });
           }
           const nextState = {
@@ -211,9 +324,14 @@ export const layer = Layer.effect(
         yield* writePreferences(fileSystem, environment, {
           ...preferences,
           selectedTargetId: null,
+          selectedTargetVersion: null,
+          launchHealth: { consecutiveFailures: 0, startedAtMs: null },
         });
         return yield* readState({ ...preferences, selectedTargetId: null });
       }),
+      prepareLaunch,
+      markHealthyStartup,
+      consumeAutoRevertNotice,
     });
   }),
 );

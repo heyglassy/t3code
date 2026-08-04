@@ -71,4 +71,56 @@ describe("DesktopReleaseCatalog", () => {
       }).pipe(Effect.provide(makeLayer(baseDir)));
     }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
   );
+
+  it.effect("falls back to follow-channel when the persisted settings file is corrupt", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const baseDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-desktop-release-corrupt-settings-test-",
+      });
+      const catalogPath = `${baseDir}/catalog.json`;
+      yield* fileSystem.writeFileString(catalogPath, `${catalogJson}\n`);
+
+      yield* Effect.gen(function* () {
+        const environment = yield* DesktopEnvironment.DesktopEnvironment;
+        yield* fileSystem.makeDirectory(environment.stateDir, { recursive: true });
+        yield* fileSystem.writeFileString(
+          `${environment.stateDir}/release-catalog-settings.json`,
+          "{ this is not valid release settings",
+        );
+
+        const catalog = yield* DesktopReleaseCatalog.DesktopReleaseCatalog;
+        const state = yield* catalog.setSource(catalogPath);
+        assert.isNull(state.selectedTargetId);
+        assert.isFalse(state.restartRequired);
+        assert.isNull(state.autoRevertNotice);
+      }).pipe(Effect.provide(makeLayer(baseDir)));
+    }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
+  );
+
+  it.effect("surfaces an auto-revert notice once", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const baseDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-desktop-release-notice-test-",
+      });
+      const catalogPath = `${baseDir}/catalog.json`;
+      yield* fileSystem.writeFileString(catalogPath, `${catalogJson}\n`);
+
+      yield* Effect.gen(function* () {
+        const environment = yield* DesktopEnvironment.DesktopEnvironment;
+        yield* fileSystem.makeDirectory(environment.stateDir, { recursive: true });
+        yield* fileSystem.writeFileString(
+          `${environment.stateDir}/release-catalog-settings.json`,
+          `{"source":"${catalogPath}","autoRevertNotice":{"fromVersion":"0.0.32-preview.1","reason":"The pinned release failed to start reliably."}}\n`,
+        );
+
+        const catalog = yield* DesktopReleaseCatalog.DesktopReleaseCatalog;
+        const firstRead = yield* catalog.consumeAutoRevertNotice;
+        assert.equal(firstRead.autoRevertNotice?.fromVersion, "0.0.32-preview.1");
+        const secondRead = yield* catalog.consumeAutoRevertNotice;
+        assert.isNull(secondRead.autoRevertNotice);
+      }).pipe(Effect.provide(makeLayer(baseDir)));
+    }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
+  );
 });

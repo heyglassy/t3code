@@ -65,6 +65,24 @@ installed package for post-restart diagnostics.
 “Follow channel” clears the persisted target, restores the normal configured
 Stable/Candidate feed, and resumes mutable channel updates.
 
+## Launch safety
+
+The desktop main process stores the selected target, its version, and launch
+health in `release-catalog-settings.json` below the T3 state directory. The
+file is read before Electron waits for `ready` or any renderer can be created.
+Malformed, partially written, or otherwise undecodable settings are treated as
+empty settings, which means follow-channel behavior; a settings read never
+prevents the app from starting. Writes use a temporary file and rename so a
+process interruption does not intentionally replace a valid document with a
+partial one.
+
+When a pinned build starts, the main process records a pending launch. The
+first main renderer reveal is the healthy-startup marker. If two consecutive
+launches fail to reach that marker within 30 seconds, the next launch clears
+the pin, resumes the normal update channel, and records the pinned version and
+reason. The Releases panel consumes that record once and tells the user which
+version was reverted. A healthy pinned launch clears the failure streak.
+
 The desktop refuses entries whose platform is not `desktop`/`all`, whose
 architecture does not match the running app, or whose data `schemaVersion` is
 unsupported. A downgrade across a data migration is therefore not silently
