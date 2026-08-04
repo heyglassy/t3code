@@ -1,0 +1,82 @@
+name: Patchbot daily reapply
+
+on:
+  schedule:
+    - cron: "17 9 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: patchbot-daily
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  reapply:
+    name: Reapply fork patches
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Verify Codex authentication secret
+        env:
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+        run: |
+          if [[ -z "${CODEX_AUTH_JSON:-}" ]]; then
+            echo "::error::Repository secret CODEX_AUTH_JSON is required. Add it under Settings > Secrets and variables > Actions before running Patchbot." >&2
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Install Codex CLI
+        run: npm install --global @openai/codex
+
+      - name: Configure Codex authentication
+        env:
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+        run: |
+          mkdir --parents "$HOME/.codex"
+          printf '%s' "$CODEX_AUTH_JSON" > "$HOME/.codex/auth.json"
+          chmod 600 "$HOME/.codex/auth.json"
+
+      - name: Reapply fork patches to upstream main
+        env:
+          PATCHBOT_BRANCH: patchbot/daily
+        run: |
+          git fetch origin main
+          git switch --create "$PATCHBOT_BRANCH" origin/main
+          if find tools/patchbot/patches -mindepth 2 -name Patch.md -print -quit | grep -q .; then
+            node --experimental-strip-types tools/patchbot/patchbot.ts apply --all
+          else
+            echo "No Patchbot patches found; nothing to reapply."
+          fi
+
+      - name: Open or update patchbot pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PATCHBOT_BRANCH: patchbot/daily
+          PATCHBOT_PR_BODY: >-
+            Daily Patchbot reapplication. Review the generated diff and run the relevant checks.
+            Required follow-up: keep the repository secret CODEX_AUTH_JSON configured for future
+            Patchbot runs.
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && echo "No patch changes" && exit 0
+          git commit -m "chore: reapply fork patches"
+          git push --force origin "HEAD:$PATCHBOT_BRANCH"
+          gh pr create --base main --head "$PATCHBOT_BRANCH" \
+            --title "chore: reapply fork patches" \
+            --body "$PATCHBOT_PR_BODY" \
+            || gh pr edit "$PATCHBOT_BRANCH" --body "$PATCHBOT_PR_BODY"

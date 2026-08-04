@@ -69,4 +69,16 @@ Patchbot first checks and applies the historical diff with Git's three-way machi
 
 ## Daily automation
 
-[`patchbot-daily.yml.example`](./patchbot-daily.yml.example) is a disabled-by-convention GitHub Actions sample. Copy it to `.github/workflows/patchbot-daily.yml` after reviewing the permissions, branch policy, and whether unattended agent execution is appropriate. It fetches `origin/main`, runs `apply --all` on a disposable branch, and creates or updates a pull request containing the regenerated fork state.
+[`.github/workflows/patchbot-daily.yml`](../../.github/workflows/patchbot-daily.yml) runs every day at 09:17 UTC and can also be started with **Run workflow**. It fetches `origin/main`, runs `apply --all` on the disposable `patchbot/daily` branch, and creates or updates a pull request containing the regenerated fork state. Runs are serialized so a manual run cannot overlap the scheduled run.
+
+Before the first run, add a repository Actions secret with this exact name:
+
+```text
+CODEX_AUTH_JSON
+```
+
+Set its value to the contents of the Codex CLI authentication file (`~/.codex/auth.json`) for the account Patchbot should use. Keep the file contents in GitHub Secrets; do not commit them or put them in workflow YAML. The workflow stops immediately with an error if `CODEX_AUTH_JSON` is missing, then writes it to the runner's temporary Codex home before invoking the fallback agent. The workflow also needs permission to write contents and pull requests, as declared in the workflow.
+
+The required activation follow-up for a repository administrator is: add `CODEX_AUTH_JSON` under **Settings → Secrets and variables → Actions → New repository secret**, then run the workflow manually once and review the generated pull request.
+
+[`patchbot-daily.yml.example`](./patchbot-daily.yml.example) remains a reference copy for forks that want to adapt the automation instead of using the shipped workflow.
