@@ -8,6 +8,8 @@
       "platform": "desktop",
       "version": "0.0.34",
       "commitSha": "c1bce96c2c09aa7f46159bbf31737623fdab41e6",
+      "schemaVersion": 1,
+      "architecture": "arm64",
       "branch": "main",
       "buildId": "desktop-0.0.34",
       "updateId": "stable-0.0.34"
@@ -18,6 +20,8 @@
       "platform": "desktop",
       "version": "0.0.33-nightly.20260803.4",
       "commitSha": "8d381767487785016e54280759d5326f2dabb760",
+      "schemaVersion": 1,
+      "architecture": "arm64",
       "branch": "main",
       "buildId": "desktop-0.0.33-nightly.20260803.4",
       "updateId": "nightly-0.0.33-nightly.20260803.4"
@@ -28,6 +32,8 @@
       "platform": "desktop",
       "version": "0.0.32-nightly.20260803.3",
       "commitSha": "034c0a6e3d9a630e897ef2180f67b85d0a49c8a2",
+      "schemaVersion": 1,
+      "architecture": "arm64",
       "branch": "main",
       "buildId": "desktop-0.0.32-nightly.20260803.3",
       "updateId": "nightly-0.0.32-nightly.20260803.3"
@@ -38,6 +44,8 @@
       "platform": "desktop",
       "version": "0.0.31",
       "commitSha": "8d381767487785016e54280759d5326f2dabb760",
+      "schemaVersion": 1,
+      "architecture": "arm64",
       "branch": "main",
       "buildId": "desktop-0.0.31",
       "updateId": "stable-0.0.31"
@@ -48,6 +56,8 @@
       "platform": "desktop",
       "version": "0.0.31-nightly.20260803.2",
       "commitSha": "27dacd2bcb91116c2803efc605df0bc2e4e7300b",
+      "schemaVersion": 1,
+      "architecture": "arm64",
       "branch": "main",
       "buildId": "desktop-0.0.31-nightly.20260803.2",
       "updateId": "nightly-0.0.31-nightly.20260803.2"

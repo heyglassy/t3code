@@ -154,6 +154,7 @@ jobs:
           if [ -n "$prefix" ]; then root="$root/$prefix"; fi
 
           manifest_path="release/$MANIFEST"
+          version_root="$root/releases/$VERSION"
           if [ ! -f "$manifest_path" ]; then
             echo "Missing updater manifest: $manifest_path" >&2
             exit 1
@@ -164,8 +165,11 @@ jobs:
             aws s3 cp "$artifact" "$root/$(basename "$artifact")" \
               --endpoint-url "$AWS_ENDPOINT_URL_S3" \
               --cache-control "public,max-age=31536000,immutable"
+            aws s3 cp "$artifact" "$version_root/$(basename "$artifact")" \
+              --endpoint-url "$AWS_ENDPOINT_URL_S3" \
+              --cache-control "public,max-age=31536000,immutable"
           done
-          aws s3 cp "$manifest_path" "$root/releases/$VERSION/$MANIFEST" \
+          aws s3 cp "$manifest_path" "$version_root/$MANIFEST" \
             --endpoint-url "$AWS_ENDPOINT_URL_S3" \
             --cache-control "public,max-age=31536000,immutable"
           aws s3 cp "$manifest_path" "$root/$MANIFEST" \
@@ -206,6 +210,7 @@ jobs:
               --build-id "$build_id" \
               --update-id "$update_id" \
               --platform desktop \
+              --architecture arm64 \
               --branch "$catalog_branch" \
               --generated-at "$catalog_generated_at"
 

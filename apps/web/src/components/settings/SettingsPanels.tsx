@@ -571,6 +571,8 @@ function ReleaseCatalogPanel() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSavingSource, setIsSavingSource] = useState(false);
   const [selectingTargetId, setSelectingTargetId] = useState<string | null>(null);
+  const [isFollowingChannel, setIsFollowingChannel] = useState(false);
+  const updateState = useDesktopUpdateState();
 
   useEffect(() => {
     if (!bridge?.getReleaseCatalog) {
@@ -644,6 +646,40 @@ function ReleaseCatalogPanel() {
       .finally(() => setSelectingTargetId(null));
   };
 
+  const followChannel = () => {
+    if (!bridge.followReleaseChannel) return;
+    setIsFollowingChannel(true);
+    void bridge
+      .followReleaseChannel()
+      .then((nextState) => setState(nextState))
+      .catch((error: unknown) => {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not follow release channel",
+            description: error instanceof Error ? error.message : "Release channel reset failed.",
+          }),
+        );
+      })
+      .finally(() => setIsFollowingChannel(false));
+  };
+
+  const selectedRelease = state?.catalog?.releases.find(
+    (release) => release.id === state?.selectedTargetId,
+  );
+  const switchStatus = selectedRelease ? updateState?.status : null;
+  const switchMessage = selectedRelease
+    ? switchStatus === "checking"
+      ? `Checking ${selectedRelease.version}…`
+      : switchStatus === "downloading"
+        ? `Downloading ${selectedRelease.version}${typeof updateState?.downloadPercent === "number" ? ` (${Math.floor(updateState.downloadPercent)}%)` : ""}…`
+        : switchStatus === "downloaded"
+          ? `${selectedRelease.version} is ready to restart and install.`
+          : switchStatus === "error"
+            ? (updateState?.message ?? "Release switch failed.")
+            : null
+    : null;
+
   return (
     <SettingsSection title="Releases">
       <SettingsRow
@@ -663,6 +699,24 @@ function ReleaseCatalogPanel() {
           </div>
         }
       />
+      {state?.selectedTargetId == null ? null : (
+        <SettingsRow
+          title="Selected release"
+          description={
+            switchMessage ?? "This version will remain selected until you follow a channel."
+          }
+          control={
+            <Button
+              size="xs"
+              variant="outline"
+              disabled={isFollowingChannel || selectingTargetId !== null}
+              onClick={followChannel}
+            >
+              {isFollowingChannel ? "Restoring…" : "Follow channel"}
+            </Button>
+          }
+        />
+      )}
       {isLoading ? (
         <p className="px-1 text-xs text-muted-foreground">Loading release catalog…</p>
       ) : state?.error ? (
@@ -715,8 +769,8 @@ function ReleaseCatalogPanel() {
       )}
       {state?.restartRequired ? (
         <p className="px-1 text-xs text-amber-600 dark:text-amber-400">
-          Release target recorded. An application restart is required after an update is installed;
-          historical release installation is not yet automatic.
+          {switchMessage ??
+            "Release selected. The downloaded build will be installed when you restart."}
         </p>
       ) : null}
     </SettingsSection>

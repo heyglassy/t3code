@@ -1,6 +1,6 @@
 import { assert, describe, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import type { DesktopUpdateState } from "@t3tools/contracts";
+import type { DesktopUpdateState, ReleaseEntry } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
@@ -16,6 +16,7 @@ import * as TestClock from "effect/testing/TestClock";
 import * as DesktopBackendPool from "../backend/DesktopBackendPool.ts";
 import * as DesktopConfig from "../app/DesktopConfig.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
+import * as DesktopReleaseCatalog from "../releases/DesktopReleaseCatalog.ts";
 import * as ElectronUpdater from "../electron/ElectronUpdater.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
@@ -31,6 +32,7 @@ interface UpdatesHarnessOptions {
   readonly setDisableDifferentialDownload?: Effect.Effect<void>;
   readonly stopBackend?: Effect.Effect<void>;
   readonly env?: Record<string, string | undefined>;
+  readonly releaseEntry?: ReleaseEntry;
 }
 
 const flushCallbacks = Effect.yieldNow;
@@ -95,6 +97,25 @@ function makeHarness(options: UpdatesHarnessOptions = {}) {
           }),
       ).pipe(Effect.asVoid),
   } satisfies ElectronUpdater.ElectronUpdater["Service"]);
+
+  const releaseCatalogLayer = Layer.succeed(DesktopReleaseCatalog.DesktopReleaseCatalog, {
+    get: Effect.succeed({
+      source: "test",
+      catalog: options.releaseEntry
+        ? {
+            schemaVersion: 1 as const,
+            generatedAt: "2026-08-03T00:00:00.000Z",
+            releases: [options.releaseEntry],
+          }
+        : null,
+      selectedTargetId: options.releaseEntry?.id ?? null,
+      restartRequired: options.releaseEntry !== undefined,
+      error: null,
+    }),
+    setSource: () => Effect.die("unexpected release catalog source update"),
+    selectTarget: () => Effect.die("unexpected release catalog selection"),
+    clearTarget: Effect.die("unexpected release catalog clear"),
+  } satisfies DesktopReleaseCatalog.DesktopReleaseCatalog["Service"]);
 
   const windowLayer = Layer.succeed(ElectronWindow.ElectronWindow, {
     create: () => Effect.die("unexpected BrowserWindow creation"),
@@ -172,6 +193,7 @@ function makeHarness(options: UpdatesHarnessOptions = {}) {
 
   const layer = DesktopUpdates.layer.pipe(
     Layer.provideMerge(updaterLayer),
+    Layer.provideMerge(releaseCatalogLayer),
     Layer.provideMerge(windowLayer),
     Layer.provideMerge(backendLayer),
     Layer.provideMerge(DesktopState.layer),
@@ -272,6 +294,51 @@ describe("DesktopUpdates", () => {
 
       assert.equal(harness.listenerCount(), 0);
     }).pipe(Effect.provide(Layer.merge(TestClock.layer(), harness.layer)));
+  });
+
+  it.effect("uses the archived feed and verifies an exact selected release", () => {
+    const releaseEntry: ReleaseEntry = {
+      id: "stable-1.2.2-abc12345",
+      channel: "stable",
+      platform: "desktop",
+      version: "1.2.2",
+      commitSha: "abc123456789",
+      schemaVersion: 1,
+      architecture: "x64",
+    };
+    const harness = makeHarness({ releaseEntry });
+
+    return Effect.scoped(
+      Effect.gen(function* () {
+        const updates = yield* DesktopUpdates.DesktopUpdates;
+        yield* updates.configure;
+
+        assert.deepEqual(harness.feedUrls().at(-1), {
+          provider: "generic",
+          url: "http://localhost:4141/releases/1.2.2/",
+        });
+
+        harness.emit("update-available", { version: "1.2.2" });
+        yield* flushCallbacks;
+        assert.equal((yield* updates.getState).status, "downloading");
+
+        harness.emit("update-downloaded", { version: "1.2.2" });
+        yield* flushCallbacks;
+        assert.equal((yield* updates.getState).status, "downloaded");
+
+        harness.emit("update-downloaded", { version: "1.2.3" });
+        yield* flushCallbacks;
+        const failed = yield* updates.getState;
+        assert.equal(failed.status, "error");
+        assert.include(failed.message ?? "", "does not match selected version");
+
+        yield* updates.followReleaseChannel;
+        assert.deepEqual(harness.feedUrls().at(-1), {
+          provider: "generic",
+          url: "http://localhost:4141",
+        });
+      }),
+    ).pipe(Effect.provide(Layer.merge(TestClock.layer(), harness.layer)));
   });
 
   it.effect("updates and broadcasts state from updater events", () => {

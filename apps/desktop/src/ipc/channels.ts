@@ -15,6 +15,7 @@ export const UPDATE_CHECK_CHANNEL = "desktop:update-check";
 export const RELEASE_CATALOG_GET_CHANNEL = "desktop:release-catalog-get";
 export const RELEASE_CATALOG_SET_SOURCE_CHANNEL = "desktop:release-catalog-set-source";
 export const RELEASE_CATALOG_SELECT_TARGET_CHANNEL = "desktop:release-catalog-select-target";
+export const RELEASE_CATALOG_FOLLOW_CHANNEL = "desktop:release-catalog-follow-channel";
 export const GET_APP_BRANDING_CHANNEL = "desktop:get-app-branding";
 export const GET_LOCAL_ENVIRONMENT_BOOTSTRAPS_CHANNEL = "desktop:get-local-environment-bootstraps";
 export const GET_LOCAL_ENVIRONMENT_BEARER_TOKEN_CHANNEL =

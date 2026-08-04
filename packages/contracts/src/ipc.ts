@@ -1019,6 +1019,7 @@ export interface DesktopBridge {
   getReleaseCatalog: () => Promise<DesktopReleaseCatalogState>;
   setReleaseCatalogSource: (source: string) => Promise<DesktopReleaseCatalogState>;
   selectReleaseTarget: (targetId: string) => Promise<DesktopReleaseSelectionResult>;
+  followReleaseChannel: () => Promise<DesktopReleaseCatalogState>;
   checkForUpdate: () => Promise<DesktopUpdateCheckResult>;
   downloadUpdate: () => Promise<DesktopUpdateActionResult>;
   installUpdate: () => Promise<DesktopUpdateActionResult>;
