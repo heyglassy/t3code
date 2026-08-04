@@ -682,6 +682,13 @@ function ReleaseCatalogPanel() {
 
   return (
     <SettingsSection title="Releases">
+      {state?.autoRevertNotice ? (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">
+          T3 Code switched back to the normal update channel after{" "}
+          <span className="font-medium">{state.autoRevertNotice.fromVersion}</span> failed to start
+          reliably. {state.autoRevertNotice.reason}
+        </div>
+      ) : null}
       <SettingsRow
         title="Catalog source"
         description="HTTPS JSON endpoint or local JSON file. The default points at the Glassycode fork's main branch."

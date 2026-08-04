@@ -46,6 +46,12 @@ export const DesktopReleaseCatalogStateSchema = Schema.Struct({
   source: TrimmedNonEmptyString,
   catalog: Schema.NullOr(ReleaseCatalogSchema),
   selectedTargetId: Schema.NullOr(TrimmedNonEmptyString),
+  autoRevertNotice: Schema.NullOr(
+    Schema.Struct({
+      fromVersion: TrimmedNonEmptyString,
+      reason: Schema.String,
+    }),
+  ),
   restartRequired: Schema.Boolean,
   error: Schema.NullOr(Schema.String),
 });

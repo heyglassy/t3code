@@ -37,6 +37,7 @@ import * as DesktopConfig from "../app/DesktopConfig.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopState from "../app/DesktopState.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
+import * as DesktopReleaseCatalog from "../releases/DesktopReleaseCatalog.ts";
 import * as ElectronMenu from "../electron/ElectronMenu.ts";
 import * as ElectronShell from "../electron/ElectronShell.ts";
 import * as ElectronTheme from "../electron/ElectronTheme.ts";
@@ -146,6 +147,16 @@ const desktopServerExposureLayer = Layer.succeed(DesktopServerExposure.DesktopSe
   getAdvertisedEndpoints: Effect.die("unexpected getAdvertisedEndpoints"),
 } satisfies DesktopServerExposure.DesktopServerExposure["Service"]);
 
+const desktopReleaseCatalogLayer = Layer.succeed(DesktopReleaseCatalog.DesktopReleaseCatalog, {
+  get: Effect.die("unexpected release catalog read"),
+  setSource: () => Effect.die("unexpected release catalog source update"),
+  selectTarget: () => Effect.die("unexpected release target selection"),
+  clearTarget: Effect.die("unexpected release target clear"),
+  prepareLaunch: Effect.die("unexpected release launch preparation"),
+  markHealthyStartup: Effect.void,
+  consumeAutoRevertNotice: Effect.die("unexpected auto-revert notice consumption"),
+} satisfies DesktopReleaseCatalog.DesktopReleaseCatalog["Service"]);
+
 const electronMenuLayer = Layer.succeed(ElectronMenu.ElectronMenu, {
   setApplicationMenu: () => Effect.void,
   popupTemplate: () => Effect.void,
@@ -247,6 +258,7 @@ function makeTestLayer(input: {
         desktopEnvironmentLayer,
         desktopAppSettingsLayer,
         desktopServerExposureLayer,
+        desktopReleaseCatalogLayer,
         DesktopState.layer,
         electronMenuLayer,
         Layer.succeed(ElectronShell.ElectronShell, {
@@ -346,6 +358,7 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
           desktopEnvironmentLayer,
           DesktopAppSettings.layerTest(),
           desktopServerExposureLayer,
+          desktopReleaseCatalogLayer,
           electronMenuLayer,
           Layer.succeed(ElectronShell.ElectronShell, {
             openExternal: () => Effect.succeed(true),

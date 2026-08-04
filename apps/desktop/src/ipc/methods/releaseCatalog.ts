@@ -17,7 +17,7 @@ export const getReleaseCatalog = DesktopIpc.makeIpcMethod({
   result: DesktopReleaseCatalogStateSchema,
   handler: Effect.fn("desktop.ipc.releaseCatalog.get")(function* () {
     const catalog = yield* DesktopReleaseCatalog.DesktopReleaseCatalog;
-    return yield* catalog.get;
+    return yield* catalog.consumeAutoRevertNotice;
   }),
 });
 

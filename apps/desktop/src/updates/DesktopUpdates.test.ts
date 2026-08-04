@@ -109,12 +109,16 @@ function makeHarness(options: UpdatesHarnessOptions = {}) {
           }
         : null,
       selectedTargetId: options.releaseEntry?.id ?? null,
+      autoRevertNotice: null,
       restartRequired: options.releaseEntry !== undefined,
       error: null,
     }),
     setSource: () => Effect.die("unexpected release catalog source update"),
     selectTarget: () => Effect.die("unexpected release catalog selection"),
     clearTarget: Effect.die("unexpected release catalog clear"),
+    prepareLaunch: Effect.die("unexpected release launch preparation"),
+    markHealthyStartup: Effect.die("unexpected healthy startup marker"),
+    consumeAutoRevertNotice: Effect.die("unexpected auto-revert notice consumption"),
   } satisfies DesktopReleaseCatalog.DesktopReleaseCatalog["Service"]);
 
   const windowLayer = Layer.succeed(ElectronWindow.ElectronWindow, {
