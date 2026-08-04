@@ -9,10 +9,11 @@ import {
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import type { CSSProperties } from "react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAtomValue } from "@effect/atom-react";
 import {
   defaultInstanceIdForDriver,
+  type DesktopReleaseCatalogState,
   type BackgroundActivityProfile,
   type BackgroundActivitySettings,
   type DesktopUpdateChannel,
@@ -36,6 +37,7 @@ import {
   type EnvironmentIdentificationMode,
   MAX_GLASS_OPACITY,
   MIN_GLASS_OPACITY,
+  type ProjectScriptSource,
 } from "@t3tools/contracts/settings";
 import {
   getBackgroundActivityBaseProfile,
@@ -87,6 +89,7 @@ import { useProjects } from "../../state/entities";
 import { useArchivedThreadSnapshots } from "../../lib/archivedThreadsState";
 import { formatRelativeTimeLabel, getRelativeTimeState } from "../../timestampFormat";
 import { Button } from "../ui/button";
+import { Input } from "../ui/input";
 import {
   Dialog,
   DialogDescription,
@@ -159,6 +162,11 @@ const ENVIRONMENT_IDENTIFICATION_LABELS: Record<EnvironmentIdentificationMode, s
   artwork: "Artwork",
   pill: "Version pill",
   none: "None",
+};
+
+const PROJECT_SCRIPT_SOURCE_LABELS: Record<ProjectScriptSource, string> = {
+  ui: "Saved actions",
+  "t3-json": "t3.json",
 };
 
 const TIMESTAMP_FORMAT_LABELS = {
@@ -556,6 +564,165 @@ function AboutVersionSection() {
   );
 }
 
+function ReleaseCatalogPanel() {
+  const bridge = typeof window !== "undefined" ? window.desktopBridge : undefined;
+  const [state, setState] = useState<DesktopReleaseCatalogState | null>(null);
+  const [sourceDraft, setSourceDraft] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSavingSource, setIsSavingSource] = useState(false);
+  const [selectingTargetId, setSelectingTargetId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!bridge?.getReleaseCatalog) {
+      setIsLoading(false);
+      return;
+    }
+    let cancelled = false;
+    void bridge
+      .getReleaseCatalog()
+      .then((nextState) => {
+        if (cancelled) return;
+        setState(nextState);
+        setSourceDraft(nextState.source);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not load releases",
+            description: error instanceof Error ? error.message : "Release catalog unavailable.",
+          }),
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [bridge]);
+
+  if (!bridge?.getReleaseCatalog) return null;
+
+  const saveSource = () => {
+    if (!bridge.setReleaseCatalogSource || sourceDraft.trim().length === 0) return;
+    setIsSavingSource(true);
+    void bridge
+      .setReleaseCatalogSource(sourceDraft.trim())
+      .then((nextState) => {
+        setState(nextState);
+        setSourceDraft(nextState.source);
+      })
+      .catch((error: unknown) => {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not save release source",
+            description: error instanceof Error ? error.message : "Release source update failed.",
+          }),
+        );
+      })
+      .finally(() => setIsSavingSource(false));
+  };
+
+  const selectTarget = (targetId: string) => {
+    if (!bridge.selectReleaseTarget) return;
+    setSelectingTargetId(targetId);
+    void bridge
+      .selectReleaseTarget(targetId)
+      .then((result) => setState(result.state))
+      .catch((error: unknown) => {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not select release",
+            description: error instanceof Error ? error.message : "Release selection failed.",
+          }),
+        );
+      })
+      .finally(() => setSelectingTargetId(null));
+  };
+
+  return (
+    <SettingsSection title="Releases">
+      <SettingsRow
+        title="Catalog source"
+        description="HTTPS JSON endpoint or local JSON file. The default points at the Glassycode fork's main branch."
+        control={
+          <div className="flex w-full max-w-xl gap-2">
+            <Input
+              value={sourceDraft}
+              onValueChange={setSourceDraft}
+              aria-label="Release catalog source"
+              placeholder="https://…/release-catalog.json"
+            />
+            <Button size="xs" variant="outline" disabled={isSavingSource} onClick={saveSource}>
+              {isSavingSource ? "Loading…" : "Refresh"}
+            </Button>
+          </div>
+        }
+      />
+      {isLoading ? (
+        <p className="px-1 text-xs text-muted-foreground">Loading release catalog…</p>
+      ) : state?.error ? (
+        <p className="px-1 text-xs text-muted-foreground">{state.error}</p>
+      ) : state?.catalog?.releases.length ? (
+        <div className="space-y-2">
+          {state.catalog.releases.map((release) => {
+            const selected = state.selectedTargetId === release.id;
+            return (
+              <div
+                key={release.id}
+                className="flex flex-col gap-2 rounded-lg border border-border/60 px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2 text-sm">
+                    <span className="font-medium">{release.version}</span>
+                    <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                      {release.channel}
+                    </span>
+                    <code className="text-[11px] text-muted-foreground">
+                      {release.commitSha.slice(0, 12)}
+                    </code>
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {release.prNumber !== undefined
+                      ? `PR #${release.prNumber}`
+                      : (release.branch ?? "Main")}
+                    {release.prTitle ? ` · ${release.prTitle}` : ""}
+                    {release.buildId ? ` · build ${release.buildId}` : ""}
+                  </div>
+                </div>
+                <Button
+                  size="xs"
+                  variant={selected ? "default" : "outline"}
+                  disabled={selected || selectingTargetId !== null}
+                  onClick={() => selectTarget(release.id)}
+                >
+                  {selected
+                    ? "Selected"
+                    : selectingTargetId === release.id
+                      ? "Selecting…"
+                      : "Switch to this version"}
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="px-1 text-xs text-muted-foreground">No release targets are published yet.</p>
+      )}
+      {state?.restartRequired ? (
+        <p className="px-1 text-xs text-amber-600 dark:text-amber-400">
+          Release target recorded. An application restart is required after an update is installed;
+          historical release installation is not yet automatic.
+        </p>
+      ) : null}
+    </SettingsSection>
+  );
+}
+
 export function useSettingsRestore(onRestored?: () => void) {
   const { theme, setTheme } = useTheme();
   const settings = usePrimarySettings();
@@ -585,6 +752,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode
         ? ["Project Grouping"]
         : []),
+      ...(settings.projectScriptSource !== DEFAULT_UNIFIED_SETTINGS.projectScriptSource
+        ? ["Project action source"]
+        : []),
       ...(settings.wordWrap !== DEFAULT_UNIFIED_SETTINGS.wordWrap ? ["Word wrap"] : []),
       ...(settings.diffIgnoreWhitespace !== DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace
         ? ["Diff whitespace changes"]
@@ -610,6 +780,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.addProjectBaseDirectory !== DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory
         ? ["Add project base directory"]
         : []),
+      ...(settings.cloneProjectBaseDirectory !== DEFAULT_UNIFIED_SETTINGS.cloneProjectBaseDirectory
+        ? ["Remote clone directory"]
+        : []),
       ...(settings.confirmThreadArchive !== DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive
         ? ["Archive confirmation"]
         : []),
@@ -625,6 +798,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.confirmThreadArchive,
       settings.confirmThreadDelete,
       settings.addProjectBaseDirectory,
+      settings.cloneProjectBaseDirectory,
       settings.defaultThreadEnvMode,
       settings.newWorktreesStartFromOrigin,
       settings.diffIgnoreWhitespace,
@@ -633,6 +807,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.enableAssistantStreaming,
       settings.enableProviderUpdateChecks,
       settings.sidebarProjectGroupingMode,
+      settings.projectScriptSource,
       settings.sidebarThreadPreviewCount,
       settings.timestampFormat,
       settings.wordWrap,
@@ -659,6 +834,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity,
       sidebarThreadPreviewCount: DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount,
       sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
+      projectScriptSource: DEFAULT_UNIFIED_SETTINGS.projectScriptSource,
       autoOpenPlanSidebar: DEFAULT_UNIFIED_SETTINGS.autoOpenPlanSidebar,
       enableAssistantStreaming: DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming,
       enableProviderUpdateChecks: DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks,
@@ -669,6 +845,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       defaultThreadEnvMode: DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode,
       newWorktreesStartFromOrigin: DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin,
       addProjectBaseDirectory: DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory,
+      cloneProjectBaseDirectory: DEFAULT_UNIFIED_SETTINGS.cloneProjectBaseDirectory,
       confirmThreadArchive: DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive,
       confirmThreadDelete: DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete,
       textGenerationModelSelection: DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
@@ -1207,6 +1384,47 @@ export function GeneralSettingsPanel() {
         />
 
         <SettingsRow
+          title="Project action source"
+          description="Choose whether project actions stay saved in T3 Code or follow scripts declared in t3.json. Saved actions are the default."
+          resetAction={
+            settings.projectScriptSource !== DEFAULT_UNIFIED_SETTINGS.projectScriptSource ? (
+              <SettingResetButton
+                label="project action source"
+                onClick={() =>
+                  updateSettings({
+                    projectScriptSource: DEFAULT_UNIFIED_SETTINGS.projectScriptSource,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Select
+              value={settings.projectScriptSource}
+              onValueChange={(value) => {
+                if (value === "ui" || value === "t3-json") {
+                  updateSettings({ projectScriptSource: value });
+                }
+              }}
+            >
+              <SelectTrigger className="w-full sm:w-44" aria-label="Project action source">
+                <SelectValue>
+                  {PROJECT_SCRIPT_SOURCE_LABELS[settings.projectScriptSource]}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                <SelectItem hideIndicator value="ui">
+                  {PROJECT_SCRIPT_SOURCE_LABELS.ui}
+                </SelectItem>
+                <SelectItem hideIndicator value="t3-json">
+                  {PROJECT_SCRIPT_SOURCE_LABELS["t3-json"]}
+                </SelectItem>
+              </SelectPopup>
+            </Select>
+          }
+        />
+
+        <SettingsRow
           {...searchableSetting("time-format")}
           description="System default follows your browser or OS clock preference."
           resetAction={
@@ -1541,6 +1759,34 @@ export function GeneralSettingsPanel() {
         />
 
         <SettingsRow
+          title="Remote project clones start in"
+          description='Leave empty to clone to "~/repository-name".'
+          resetAction={
+            settings.cloneProjectBaseDirectory !==
+            DEFAULT_UNIFIED_SETTINGS.cloneProjectBaseDirectory ? (
+              <SettingResetButton
+                label="remote clone directory"
+                onClick={() =>
+                  updateSettings({
+                    cloneProjectBaseDirectory: DEFAULT_UNIFIED_SETTINGS.cloneProjectBaseDirectory,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <DraftInput
+              className="w-full sm:w-72"
+              value={settings.cloneProjectBaseDirectory}
+              onCommit={(next) => updateSettings({ cloneProjectBaseDirectory: next })}
+              placeholder="~/"
+              spellCheck={false}
+              aria-label="Remote project clone base directory"
+            />
+          }
+        />
+
+        <SettingsRow
           {...searchableSetting("archive-confirmation")}
           description="Require a second click on the inline archive action before a thread is archived."
           resetAction={
@@ -1686,6 +1932,7 @@ export function GeneralSettingsPanel() {
           }
         />
       </SettingsSection>
+      {isElectron ? <ReleaseCatalogPanel /> : null}
     </SettingsPageContainer>
   );
 }

@@ -21,12 +21,36 @@ import {
   type TerminalContextDraft,
 } from "../lib/terminalContext";
 import type { DraftThreadEnvMode } from "../composerDraftStore";
+import type { TimelineScrollMode } from "./chat/timelineScrollAnchoring";
 
 export const LAST_INVOKED_SCRIPT_BY_PROJECT_KEY = "t3code:last-invoked-script-by-project";
 export const MAX_HIDDEN_MOUNTED_TERMINAL_THREADS = 10;
 export const MAX_HIDDEN_MOUNTED_PREVIEW_THREADS = 3;
 
 export const LastInvokedScriptByProjectSchema = Schema.Record(ProjectId, Schema.String);
+
+export interface TimelineFollowState {
+  readonly mode: TimelineScrollMode;
+  readonly userScrollGeneration: number;
+  readonly liveFollowUserScrollGeneration: number | null;
+}
+
+export function cancelTimelineFollowForUserNavigation(
+  state: TimelineFollowState,
+): TimelineFollowState {
+  return {
+    mode: "free-scrolling",
+    userScrollGeneration: state.userScrollGeneration + 1,
+    liveFollowUserScrollGeneration: null,
+  };
+}
+
+export function resolveTimelineFollowUpdateAction(state: TimelineFollowState): TimelineScrollMode {
+  if (state.liveFollowUserScrollGeneration !== state.userScrollGeneration) {
+    return "free-scrolling";
+  }
+  return state.mode;
+}
 
 export function startNewThreadForProject(
   projectRef: ScopedProjectRef | null,
@@ -104,6 +128,17 @@ export function buildLoadingThreadFromShell(shell: ThreadShell): Thread {
     checkpoints: [],
     deletedAt: null,
   };
+}
+
+export function shouldMarkThreadVisited(input: {
+  threadUpdatedAt: string;
+  lastVisitedAt?: string | undefined;
+}): boolean {
+  const threadUpdatedAt = Date.parse(input.threadUpdatedAt);
+  if (Number.isNaN(threadUpdatedAt)) return false;
+
+  const lastVisitedAt = input.lastVisitedAt ? Date.parse(input.lastVisitedAt) : Number.NaN;
+  return Number.isNaN(lastVisitedAt) || lastVisitedAt < threadUpdatedAt;
 }
 
 export function shouldWriteThreadErrorToCurrentServerThread(input: {

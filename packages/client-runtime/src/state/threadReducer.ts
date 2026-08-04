@@ -326,6 +326,97 @@ export function applyThreadDetailEvent(
       };
     }
 
+    case "thread.turn-queued":
+      return {
+        kind: "updated",
+        thread: {
+          ...thread,
+          queuedTurns: [
+            ...(thread.queuedTurns ?? []).filter(
+              (entry) => entry.messageId !== event.payload.queuedTurn.messageId,
+            ),
+            event.payload.queuedTurn,
+          ].toSorted(
+            (left, right) =>
+              left.queueSequence - right.queueSequence ||
+              left.messageId.localeCompare(right.messageId),
+          ),
+          updatedAt: event.occurredAt,
+        },
+      };
+
+    case "thread.queued-turn-dispatch-requested":
+      return {
+        kind: "updated",
+        thread: {
+          ...thread,
+          queuedTurns: (thread.queuedTurns ?? []).map((entry) =>
+            entry.messageId === event.payload.messageId
+              ? { ...entry, status: "dispatching" as const }
+              : entry,
+          ),
+          updatedAt: event.occurredAt,
+        },
+      };
+
+    case "thread.queued-turn-dispatched":
+    case "thread.queued-turn-cancelled":
+      return {
+        kind: "updated",
+        thread: {
+          ...thread,
+          queuedTurns: (thread.queuedTurns ?? []).filter(
+            (entry) => entry.messageId !== event.payload.messageId,
+          ),
+          updatedAt: event.occurredAt,
+        },
+      };
+
+    case "thread.queued-turn-failed":
+      return {
+        kind: "updated",
+        thread: {
+          ...thread,
+          queuedTurns: (thread.queuedTurns ?? []).map((entry) =>
+            entry.messageId === event.payload.messageId
+              ? { ...entry, status: "failed" as const, lastError: event.payload.error }
+              : entry,
+          ),
+          updatedAt: event.occurredAt,
+        },
+      };
+
+    case "thread.queued-turn-retried":
+      return {
+        kind: "updated",
+        thread: {
+          ...thread,
+          queuedTurns: (thread.queuedTurns ?? []).map((entry) =>
+            entry.messageId === event.payload.messageId
+              ? {
+                  ...entry,
+                  status: "queued" as const,
+                  attempt: event.payload.attempt ?? entry.attempt + 1,
+                  lastError: null,
+                }
+              : entry,
+          ),
+          updatedAt: event.occurredAt,
+        },
+      };
+
+    case "thread.queued-turns-cleared":
+      return {
+        kind: "updated",
+        thread: {
+          ...thread,
+          queuedTurns: (thread.queuedTurns ?? []).filter(
+            (entry) => !event.payload.messageIds.includes(entry.messageId),
+          ),
+          updatedAt: event.occurredAt,
+        },
+      };
+
     // ── Session ─────────────────────────────────────────────────────
     case "thread.session-set": {
       // Leaving the "running" session status is the turn-end signal: settle a

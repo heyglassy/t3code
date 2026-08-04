@@ -222,6 +222,7 @@ export const ProjectFileOperation = Schema.Literals([
   "close",
   "make-directory",
   "write-file",
+  "watch",
 ]);
 export type ProjectFileOperation = typeof ProjectFileOperation.Type;
 
@@ -257,6 +258,39 @@ export class ProjectReadFileError extends Schema.TaggedErrorClass<ProjectReadFil
       message:
         decodedProjectErrorMessage(props) ??
         `Failed to read workspace file '${props.relativePath}' in '${props.cwd}'.`,
+    } as any);
+  }
+}
+
+export const ProjectFileWatchInput = ProjectReadFileInput;
+export type ProjectFileWatchInput = typeof ProjectFileWatchInput.Type;
+
+export const ProjectFileWatchEvent = Schema.Struct({
+  relativePath: TrimmedNonEmptyString,
+});
+export type ProjectFileWatchEvent = typeof ProjectFileWatchEvent.Type;
+
+export class ProjectFileWatchError extends Schema.TaggedErrorClass<ProjectFileWatchError>()(
+  "ProjectFileWatchError",
+  {
+    cwd: Schema.optional(TrimmedNonEmptyString),
+    relativePath: Schema.optional(TrimmedNonEmptyString),
+    failure: Schema.optional(ProjectFileFailure),
+    resolvedPath: Schema.optional(TrimmedNonEmptyString),
+    resolvedWorkspaceRoot: Schema.optional(TrimmedNonEmptyString),
+    operation: Schema.optional(ProjectFileOperation),
+    operationPath: Schema.optional(TrimmedNonEmptyString),
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {
+  // @effect-diagnostics-next-line overriddenSchemaConstructor:off
+  constructor(props: ProjectFileFailureContext) {
+    super({
+      ...props,
+      message:
+        decodedProjectErrorMessage(props) ??
+        `Failed to watch workspace file '${props.relativePath}' in '${props.cwd}'.`,
     } as any);
   }
 }

@@ -30,6 +30,10 @@ import {
   ThreadRevertedPayload,
   ThreadSessionSetPayload,
   ThreadTurnDiffCompletedPayload,
+  ThreadQueuedTurnPayload,
+  ThreadQueuedTurnStatusPayload,
+  ThreadQueuedTurnFailedPayload,
+  ThreadQueuedTurnsClearedPayload,
 } from "./Schemas.ts";
 
 type ThreadPatch = Partial<Omit<OrchestrationThread, "id" | "projectId">>;
@@ -500,6 +504,139 @@ export function projectEvent(
           }),
         };
       });
+
+    case "thread.turn-queued":
+      return decodeForEvent(ThreadQueuedTurnPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => {
+          const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
+          if (!thread) return nextBase;
+          const queuedTurns = [
+            ...(thread.queuedTurns ?? []).filter(
+              (entry) => entry.messageId !== payload.queuedTurn.messageId,
+            ),
+            payload.queuedTurn,
+          ].toSorted(
+            (left, right) =>
+              left.queueSequence - right.queueSequence ||
+              left.messageId.localeCompare(right.messageId),
+          );
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              queuedTurns,
+              updatedAt: event.occurredAt,
+            }),
+          };
+        }),
+      );
+
+    case "thread.queued-turn-dispatch-requested":
+      return decodeForEvent(
+        ThreadQueuedTurnStatusPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          threads: updateThread(nextBase.threads, payload.threadId, {
+            queuedTurns: (
+              nextBase.threads.find((entry) => entry.id === payload.threadId)?.queuedTurns ?? []
+            ).map((entry) =>
+              entry.messageId === payload.messageId
+                ? { ...entry, status: "dispatching" as const }
+                : entry,
+            ),
+            updatedAt: event.occurredAt,
+          }),
+        })),
+      );
+
+    case "thread.queued-turn-dispatched":
+    case "thread.queued-turn-cancelled":
+      return decodeForEvent(
+        ThreadQueuedTurnStatusPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          threads: updateThread(nextBase.threads, payload.threadId, {
+            queuedTurns: (
+              nextBase.threads.find((entry) => entry.id === payload.threadId)?.queuedTurns ?? []
+            ).filter((entry) => entry.messageId !== payload.messageId),
+            updatedAt: event.occurredAt,
+          }),
+        })),
+      );
+
+    case "thread.queued-turn-failed":
+      return decodeForEvent(
+        ThreadQueuedTurnFailedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          threads: updateThread(nextBase.threads, payload.threadId, {
+            queuedTurns: (
+              nextBase.threads.find((entry) => entry.id === payload.threadId)?.queuedTurns ?? []
+            ).map((entry) =>
+              entry.messageId === payload.messageId
+                ? { ...entry, status: "failed" as const, lastError: payload.error }
+                : entry,
+            ),
+            updatedAt: event.occurredAt,
+          }),
+        })),
+      );
+
+    case "thread.queued-turn-retried":
+      return decodeForEvent(
+        ThreadQueuedTurnStatusPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          threads: updateThread(nextBase.threads, payload.threadId, {
+            queuedTurns: (
+              nextBase.threads.find((entry) => entry.id === payload.threadId)?.queuedTurns ?? []
+            ).map((entry) =>
+              entry.messageId === payload.messageId
+                ? {
+                    ...entry,
+                    status: "queued" as const,
+                    attempt: payload.attempt ?? entry.attempt + 1,
+                    lastError: null,
+                  }
+                : entry,
+            ),
+            updatedAt: event.occurredAt,
+          }),
+        })),
+      );
+
+    case "thread.queued-turns-cleared":
+      return decodeForEvent(
+        ThreadQueuedTurnsClearedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          threads: updateThread(nextBase.threads, payload.threadId, {
+            queuedTurns: (
+              nextBase.threads.find((entry) => entry.id === payload.threadId)?.queuedTurns ?? []
+            ).filter((entry) => !payload.messageIds.includes(entry.messageId)),
+            updatedAt: event.occurredAt,
+          }),
+        })),
+      );
 
     case "thread.session-set":
       return Effect.gen(function* () {

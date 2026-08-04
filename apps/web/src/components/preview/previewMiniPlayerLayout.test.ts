@@ -4,6 +4,7 @@ import {
   clampPreviewMiniPlayerPosition,
   clampPreviewMiniPlayerSize,
   PREVIEW_MINI_PLAYER_EDGE_GAP,
+  snapPreviewMiniPlayerPosition,
 } from "./previewMiniPlayerLayout";
 
 describe("clampPreviewMiniPlayerPosition", () => {
@@ -45,6 +46,42 @@ describe("clampPreviewMiniPlayerPosition", () => {
       x: 500,
       y: 288,
     });
+  });
+});
+
+describe("snapPreviewMiniPlayerPosition", () => {
+  it("snaps a dragged player near the top and left edges", () => {
+    expect(
+      snapPreviewMiniPlayerPosition(
+        { x: 30, y: 35 },
+        { width: 1_000, height: 700 },
+        { width: 360, height: 240 },
+      ),
+    ).toEqual({
+      x: PREVIEW_MINI_PLAYER_EDGE_GAP,
+      y: PREVIEW_MINI_PLAYER_EDGE_GAP,
+    });
+  });
+
+  it("snaps near the right and usable bottom edges", () => {
+    expect(
+      snapPreviewMiniPlayerPosition(
+        { x: 610, y: 275 },
+        { width: 1_000, height: 700 },
+        { width: 360, height: 240 },
+        160,
+      ),
+    ).toEqual({ x: 628, y: 288 });
+  });
+
+  it("preserves a free position outside the edge threshold", () => {
+    expect(
+      snapPreviewMiniPlayerPosition(
+        { x: 300, y: 200 },
+        { width: 1_000, height: 700 },
+        { width: 360, height: 240 },
+      ),
+    ).toEqual({ x: 300, y: 200 });
   });
 });
 

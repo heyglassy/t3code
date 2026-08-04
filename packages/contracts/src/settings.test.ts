@@ -33,6 +33,18 @@ describe("ClientSettings word wrap", () => {
   });
 });
 
+describe("ClientSettings project action source", () => {
+  it("defaults to saved UI actions", () => {
+    expect(decodeClientSettings({}).projectScriptSource).toBe("ui");
+  });
+
+  it("accepts t3.json as the action source", () => {
+    expect(decodeClientSettingsPatch({ projectScriptSource: "t3-json" }).projectScriptSource).toBe(
+      "t3-json",
+    );
+  });
+});
+
 describe("ClientSettings glass opacity", () => {
   it("defaults to a readable translucent surface", () => {
     expect(decodeClientSettings({}).glassOpacity).toBe(80);
@@ -176,6 +188,19 @@ describe("ServerSettings worktree defaults", () => {
     expect(
       decodeServerSettingsPatch({ newWorktreesStartFromOrigin: false }).newWorktreesStartFromOrigin,
     ).toBe(false);
+  });
+});
+
+describe("ServerSettings clone directory", () => {
+  it("defaults remote clones to the user's home directory", () => {
+    expect(decodeServerSettings({}).cloneProjectBaseDirectory).toBe("");
+  });
+
+  it("trims clone directory updates", () => {
+    expect(
+      decodeServerSettingsPatch({ cloneProjectBaseDirectory: "  ~/Development  " })
+        .cloneProjectBaseDirectory,
+    ).toBe("~/Development");
   });
 });
 

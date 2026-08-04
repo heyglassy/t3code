@@ -6,6 +6,7 @@ import {
   buildProjectCreateCommand,
   canCreateProjectInEnvironment,
   findExistingAddProject,
+  getAddProjectCloneInitialQuery,
   getAddProjectInitialQuery,
   resolveAddProjectPath,
   sortAddProjectProviderSources,
@@ -30,7 +31,14 @@ import { CommandId, type EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { StackActions, useNavigation } from "@react-navigation/native";
 import { SymbolView } from "../../components/AppSymbol";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ActivityIndicator, Alert, Pressable, ScrollView, View } from "react-native";
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  ScrollView,
+  TextInput as NativeTextInput,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Arr from "effect/Array";
 import * as Cause from "effect/Cause";
@@ -62,6 +70,7 @@ interface EnvironmentOption {
   readonly label: string;
   readonly platform: string;
   readonly baseDirectory: string | null;
+  readonly cloneBaseDirectory: string | null;
   readonly connectionState: EnvironmentConnectionPhase;
   readonly connectionError: string | null;
   readonly connectionErrorTraceId: string | null;
@@ -221,9 +230,11 @@ function ProjectPathInput(props: {
   readonly value: string;
   readonly onChangeText: (value: string) => void;
   readonly onSubmit: () => void;
+  readonly ref?: React.Ref<NativeTextInput>;
 }) {
   return (
     <TextInput
+      ref={props.ref}
       className="h-12 min-h-12 rounded-[24px] px-4 py-0 text-base leading-snug"
       value={props.value}
       onChangeText={props.onChangeText}
@@ -236,11 +247,11 @@ function ProjectPathInput(props: {
   );
 }
 
-function useBrowsePathInput(environment: EnvironmentOption | null) {
+function useBrowsePathInput(environment: EnvironmentOption | null, initialPath?: string) {
   const environmentId = environment?.environmentId ?? null;
   const environmentBaseDirectory = environment?.baseDirectory ?? null;
-  const [pathInput, commitPathInput] = useState(() =>
-    getAddProjectInitialQuery(environmentBaseDirectory),
+  const [pathInput, commitPathInput] = useState(
+    () => initialPath ?? getAddProjectInitialQuery(environmentBaseDirectory),
   );
   const previousEnvironmentIdRef = useRef(environmentId);
   const environmentRuntime = useRemoteEnvironmentRuntime(environmentId);
@@ -283,9 +294,9 @@ function useBrowsePathInput(environment: EnvironmentOption | null) {
   useEffect(() => {
     if (environmentId !== null && environmentId !== previousEnvironmentIdRef.current) {
       previousEnvironmentIdRef.current = environmentId;
-      setPathInput(getAddProjectInitialQuery(environmentBaseDirectory));
+      setPathInput(initialPath ?? getAddProjectInitialQuery(environmentBaseDirectory));
     }
-  }, [environmentBaseDirectory, environmentId, setPathInput]);
+  }, [environmentBaseDirectory, environmentId, initialPath, setPathInput]);
 
   useEffect(
     () => () => {
@@ -314,6 +325,7 @@ function useEnvironmentOptions(): ReadonlyArray<EnvironmentOption> {
         label: connection.environmentLabel,
         platform: platformFromOs(config?.environment.platform.os ?? null),
         baseDirectory: config?.settings.addProjectBaseDirectory ?? null,
+        cloneBaseDirectory: config?.settings.cloneProjectBaseDirectory ?? null,
         connectionState: runtime?.connectionState ?? "available",
         connectionError: runtime?.connectionError ?? null,
         connectionErrorTraceId: runtime?.connectionErrorTraceId ?? null,
@@ -832,10 +844,28 @@ export function AddProjectDestinationScreen(props: {
   const createProject = useCreateProject(environment);
   const remoteUrl = stringParam(props.remoteUrl);
   const repositoryTitle = stringParam(props.repositoryTitle);
-  const { isBrowseNavigating, navigateToBrowsePath, pathInput, setPathInput } =
-    useBrowsePathInput(environment);
+  const pathInputRef = useRef<NativeTextInput>(null);
+  const cloneInitialPath = useMemo(
+    () =>
+      getAddProjectCloneInitialQuery({
+        baseDirectory: environment?.cloneBaseDirectory,
+        repositoryName: repositoryTitle,
+        remoteUrl,
+      }),
+    [environment?.cloneBaseDirectory, remoteUrl, repositoryTitle],
+  );
+  const { isBrowseNavigating, navigateToBrowsePath, pathInput, setPathInput } = useBrowsePathInput(
+    environment,
+    cloneInitialPath,
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    pathInputRef.current?.setNativeProps({
+      selection: { start: 0, end: cloneInitialPath.length },
+    });
+  }, [cloneInitialPath]);
 
   const submitPath = useCallback(async () => {
     if (!environment || !remoteUrl || isBrowseNavigating || isSubmitting) return;
@@ -891,6 +921,7 @@ export function AddProjectDestinationScreen(props: {
       {environment ? (
         <>
           <ProjectPathInput
+            ref={pathInputRef}
             value={pathInput}
             onChangeText={setPathInput}
             onSubmit={() => void submitPath()}

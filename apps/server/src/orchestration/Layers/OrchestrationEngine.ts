@@ -299,6 +299,25 @@ const makeOrchestrationEngine = Effect.gen(function* () {
 
   yield* projectionPipeline.bootstrap;
   commandReadModel = yield* projectionSnapshotQuery.getCommandReadModel();
+  // Queue state is part of the event-sourced command model. The existing
+  // lightweight SQL snapshot intentionally omits queue bodies, so rebuild
+  // just these events on startup; this keeps queued work durable without
+  // hydrating every historical message into the command model.
+  const persistedQueueEvents = yield* Stream.runCollect(eventStore.readFromSequence(0, 1_000_000));
+  for (const event of persistedQueueEvents) {
+    if (
+      event.type !== "thread.turn-queued" &&
+      event.type !== "thread.queued-turn-dispatch-requested" &&
+      event.type !== "thread.queued-turn-dispatched" &&
+      event.type !== "thread.queued-turn-failed" &&
+      event.type !== "thread.queued-turn-retried" &&
+      event.type !== "thread.queued-turn-cancelled" &&
+      event.type !== "thread.queued-turns-cleared"
+    ) {
+      continue;
+    }
+    commandReadModel = yield* projectEvent(commandReadModel, event).pipe(Effect.orDie);
+  }
 
   const worker = Effect.forever(Queue.take(commandQueue).pipe(Effect.flatMap(processEnvelope)));
   yield* Effect.forkScoped(worker);

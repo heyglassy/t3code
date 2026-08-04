@@ -1,22 +1,21 @@
 "use client";
 
 import type { ScopedThreadRef } from "@t3tools/contracts";
-import { PanelRightIcon, PictureInPicture2, XIcon } from "lucide-react";
+import { GripHorizontal, PanelRightIcon, XIcon } from "lucide-react";
 import { type PointerEvent as ReactPointerEvent, useLayoutEffect, useRef } from "react";
 
 import { BrowserSurfaceSlot } from "~/browser/BrowserSurfaceSlot";
 import { previewRuntimeTabId } from "~/browser/previewRuntimeTabId";
 import { Button } from "~/components/ui/button";
-import { toastManager } from "~/components/ui/toast";
 import { useThreadPreviewState } from "~/previewStateStore";
 import { selectThreadPreviewMiniPlayer, usePreviewMiniPlayerStore } from "~/previewMiniPlayerStore";
 import { useRightPanelStore } from "~/rightPanelStore";
 
-import { previewBridge } from "./previewBridge";
 import {
   clampPreviewMiniPlayerPosition,
   clampPreviewMiniPlayerSize,
   PREVIEW_MINI_PLAYER_DEFAULT_SIZE,
+  snapPreviewMiniPlayerPosition,
 } from "./previewMiniPlayerLayout";
 
 interface DragState {
@@ -66,20 +65,6 @@ export function ThreadPreviewMiniPlayer({ threadRef, tabId, bottomInset }: Props
     useRightPanelStore.getState().openBrowser(threadRef, tabId);
   };
 
-  const toggleNativePictureInPicture = () => {
-    if (!previewBridge) return;
-    const operation = desktopOverlay?.pictureInPicture
-      ? previewBridge.pictureInPicture.close
-      : previewBridge.pictureInPicture.open;
-    void operation(runtimeTabId).catch((error) => {
-      toastManager.add({
-        type: "error",
-        title: "Unable to update popped-out preview",
-        description: error instanceof Error ? error.message : "An error occurred.",
-      });
-    });
-  };
-
   useLayoutEffect(() => {
     const clampAndMove = () => {
       const root = rootRef.current;
@@ -111,7 +96,7 @@ export function ThreadPreviewMiniPlayer({ threadRef, tabId, bottomInset }: Props
     return () => observer.disconnect();
   }, [bottomInset, position, tabId, threadRef]);
 
-  const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+  const handlePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
     if (event.button !== 0) return;
     const root = rootRef.current;
     const parent = root?.offsetParent;
@@ -129,14 +114,14 @@ export function ThreadPreviewMiniPlayer({ threadRef, tabId, bottomInset }: Props
     event.preventDefault();
   };
 
-  const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+  const handlePointerMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
     const drag = dragRef.current;
     const root = rootRef.current;
     const parent = root?.offsetParent;
     if (!drag || drag.pointerId !== event.pointerId || !root || !(parent instanceof HTMLElement)) {
       return;
     }
-    const next = clampPreviewMiniPlayerPosition(
+    const next = snapPreviewMiniPlayerPosition(
       {
         x: drag.playerX + event.clientX - drag.pointerX,
         y: drag.playerY + event.clientY - drag.pointerY,
@@ -148,7 +133,7 @@ export function ThreadPreviewMiniPlayer({ threadRef, tabId, bottomInset }: Props
     usePreviewMiniPlayerStore.getState().move(threadRef, tabId, next);
   };
 
-  const endDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+  const endDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
     if (dragRef.current?.pointerId !== event.pointerId) return;
     dragRef.current = null;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
@@ -229,58 +214,38 @@ export function ThreadPreviewMiniPlayer({ threadRef, tabId, bottomInset }: Props
             }
       }
     >
-      <div className="group pointer-events-auto absolute right-2 top-2 z-[34] size-3">
-        <div
-          aria-hidden="true"
-          className="absolute right-0 top-0 size-2 rounded-full bg-foreground/25 shadow-sm ring-1 ring-background/70 transition-opacity group-hover:opacity-0 group-focus-within:opacity-0"
-        />
-        <div
-          className="pointer-events-none absolute right-0 top-0 flex h-8 cursor-grab items-center gap-0.5 rounded-lg border border-border/80 bg-popover/92 p-0.5 opacity-0 shadow-lg/20 backdrop-blur-xl transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 active:cursor-grabbing"
+      <div className="pointer-events-auto absolute left-1/2 top-2 z-[34] flex -translate-x-1/2 items-center gap-0.5 rounded-lg border border-border/80 bg-popover/92 p-0.5 text-muted-foreground shadow-lg/20 backdrop-blur-xl">
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          aria-label="Move floating preview"
+          title="Drag to move"
+          className="touch-none cursor-grab active:cursor-grabbing"
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={endDrag}
           onPointerCancel={endDrag}
         >
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            aria-label="Open preview in right panel"
-            title="Open in right panel"
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={openInPanel}
-          >
-            <PanelRightIcon />
-          </Button>
-          <Button
-            variant={desktopOverlay?.pictureInPicture ? "secondary" : "ghost"}
-            size="icon-xs"
-            aria-label={
-              desktopOverlay?.pictureInPicture
-                ? "Close popped-out preview"
-                : "Pop preview into separate window"
-            }
-            title={
-              desktopOverlay?.pictureInPicture
-                ? "Close separate window"
-                : "Pop into separate window"
-            }
-            disabled={!desktopOverlay?.hasWebContents}
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={toggleNativePictureInPicture}
-          >
-            <PictureInPicture2 />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            aria-label="Close floating preview"
-            title="Close floating preview"
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={close}
-          >
-            <XIcon />
-          </Button>
-        </div>
+          <GripHorizontal />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          aria-label="Open preview in right panel"
+          title="Open in right panel"
+          onClick={openInPanel}
+        >
+          <PanelRightIcon />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          aria-label="Close floating preview"
+          title="Close floating preview"
+          onClick={close}
+        >
+          <XIcon />
+        </Button>
       </div>
 
       <div className="relative h-full min-h-0">

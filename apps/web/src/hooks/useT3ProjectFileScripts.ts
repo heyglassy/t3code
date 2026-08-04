@@ -6,9 +6,12 @@ import {
 import { T3ProjectFileFromJson } from "@t3tools/shared/t3ProjectFile";
 import * as Exit from "effect/Exit";
 import * as Schema from "effect/Schema";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 
-import { useProjectFileQuery } from "~/components/files/projectFilesQueryState";
+import {
+  useProjectFileChanges,
+  useProjectFileQuery,
+} from "~/components/files/projectFilesQueryState";
 
 const decodeT3ProjectFile = Schema.decodeExit(T3ProjectFileFromJson);
 
@@ -22,9 +25,21 @@ const NO_SCRIPTS: ReadonlyArray<T3ProjectFileScript> = [];
 export function useT3ProjectFileScripts(
   environmentId: EnvironmentId,
   cwd: string | null,
+  watch = false,
 ): ReadonlyArray<T3ProjectFileScript> {
   const query = useProjectFileQuery(environmentId, cwd ?? "", T3_PROJECT_FILE_NAME, cwd !== null);
+  const fileChange = useProjectFileChanges(
+    environmentId,
+    cwd ?? "",
+    T3_PROJECT_FILE_NAME,
+    cwd !== null && watch,
+  );
   const contents = query.data && !query.data.truncated ? query.data.contents : null;
+
+  useEffect(() => {
+    if (fileChange === null) return;
+    query.refresh();
+  }, [fileChange, query.refresh]);
   return useMemo(() => {
     if (contents === null) return NO_SCRIPTS;
     const decoded = decodeT3ProjectFile(contents);

@@ -12,6 +12,7 @@ import {
   type ServerProvider,
   type ResolvedKeybindingsConfig,
   type ScopedThreadRef,
+  type T3ProjectFileScript,
   type ThreadId,
   type TurnId,
   type KeybindingCommand,
@@ -158,8 +159,10 @@ import { stackedThreadToast, toastManager } from "./ui/toast";
 import { decodeProjectScriptKeybindingRule } from "~/lib/projectScriptKeybindings";
 import { type NewProjectScriptInput } from "./ProjectScriptsControl";
 import {
+  areProjectScriptsEqual,
   buildProjectScript,
   commandForProjectScript,
+  mergeT3ProjectScripts,
   nextProjectScriptId,
   projectScriptIdFromCommand,
 } from "~/projectScripts";
@@ -267,13 +270,16 @@ import {
   type LocalDispatchSnapshot,
   PullRequestDialogState,
   cloneComposerImageForRetry,
+  cancelTimelineFollowForUserNavigation,
   deriveLockedProvider,
   readFileAsDataUrl,
   reconcileMountedTerminalThreadIds,
+  resolveTimelineFollowUpdateAction,
   resolveThreadMetadataUpdateForNextTurn,
   resolveSendEnvMode,
   revokeBlobPreviewUrl,
   revokeUserMessagePreviewUrls,
+  shouldMarkThreadVisited,
   shouldWriteThreadErrorToCurrentServerThread,
   startNewThreadForProject,
   waitForStartedServerThread,
@@ -1220,9 +1226,6 @@ function ChatViewContent(props: ChatViewProps) {
   );
   const activeServerThread = serverThread ?? loadingServerThread;
   const markThreadVisited = useUiStateStore((store) => store.markThreadVisited);
-  const activeThreadLastVisitedAt = useUiStateStore(
-    (store) => store.threadLastVisitedAtById[routeThreadKey],
-  );
   const settings = useEnvironmentSettings(environmentId);
   // New-thread defaults live in the primary environment's settings.json (the
   // settings UI never writes to remote environments), so read them from the
@@ -1843,22 +1846,16 @@ function ChatViewContent(props: ChatViewProps) {
 
   useEffect(() => {
     if (!serverThread?.id) return;
-    const threadUpdatedAt = Date.parse(serverThread.updatedAt);
-    if (Number.isNaN(threadUpdatedAt)) return;
-    const lastVisitedAt = activeThreadLastVisitedAt ? Date.parse(activeThreadLastVisitedAt) : NaN;
-    if (!Number.isNaN(lastVisitedAt) && lastVisitedAt >= threadUpdatedAt) return;
+    const threadKey = scopedThreadKey(scopeThreadRef(serverThread.environmentId, serverThread.id));
+    // Read this imperatively: subscribing to the marker would make a local
+    // "mark unread" action immediately trigger this effect and clear itself.
+    const lastVisitedAt = useUiStateStore.getState().threadLastVisitedAtById[threadKey];
+    if (!shouldMarkThreadVisited({ threadUpdatedAt: serverThread.updatedAt, lastVisitedAt })) {
+      return;
+    }
 
-    markThreadVisited(
-      scopedThreadKey(scopeThreadRef(serverThread.environmentId, serverThread.id)),
-      serverThread.updatedAt,
-    );
-  }, [
-    activeThreadLastVisitedAt,
-    markThreadVisited,
-    serverThread?.environmentId,
-    serverThread?.id,
-    serverThread?.updatedAt,
-  ]);
+    markThreadVisited(threadKey, serverThread.updatedAt);
+  }, [markThreadVisited, serverThread?.environmentId, serverThread?.id, serverThread?.updatedAt]);
 
   const selectedProviderByThreadId = composerActiveProvider ?? null;
   const threadProvider =
@@ -2980,6 +2977,28 @@ function ChatViewContent(props: ChatViewProps) {
     },
     [activeProject, persistProjectScripts],
   );
+  const syncProjectScriptsFromFile = useCallback(
+    async (
+      fileScripts: ReadonlyArray<T3ProjectFileScript>,
+    ): Promise<AtomCommandResult<void, unknown>> => {
+      if (!activeProject) return AsyncResult.success(undefined);
+      const nextScripts = mergeT3ProjectScripts(activeProject.scripts, fileScripts);
+      if (areProjectScriptsEqual(activeProject.scripts, nextScripts)) {
+        return AsyncResult.success(undefined);
+      }
+      return mapAtomCommandResult(
+        await updateProject({
+          environmentId,
+          input: {
+            projectId: activeProject.id,
+            scripts: nextScripts,
+          },
+        }),
+        () => undefined,
+      );
+    },
+    [activeProject, environmentId, updateProject],
+  );
   const updateProjectScript = useCallback(
     async (
       scriptId: string,
@@ -3522,9 +3541,14 @@ function ChatViewContent(props: ChatViewProps) {
   } | null>(null);
   const anchorScrollRestoreFrameRef = useRef<number | null>(null);
   const cancelTimelineLiveFollowForUserNavigation = useCallback(() => {
-    anchorUserScrollGenerationRef.current += 1;
-    timelineScrollModeRef.current = "free-scrolling";
-    liveFollowUserScrollGenerationRef.current = null;
+    const nextFollowState = cancelTimelineFollowForUserNavigation({
+      mode: timelineScrollModeRef.current,
+      userScrollGeneration: anchorUserScrollGenerationRef.current,
+      liveFollowUserScrollGeneration: liveFollowUserScrollGenerationRef.current,
+    });
+    anchorUserScrollGenerationRef.current = nextFollowState.userScrollGeneration;
+    timelineScrollModeRef.current = nextFollowState.mode;
+    liveFollowUserScrollGenerationRef.current = nextFollowState.liveFollowUserScrollGeneration;
     pendingTimelineAnchorRef.current = null;
     positionedTimelineAnchorRef.current = null;
     settledTimelineAnchorRef.current = null;
@@ -3535,13 +3559,6 @@ function ChatViewContent(props: ChatViewProps) {
       anchorScrollRestoreFrameRef.current = null;
     }
   }, []);
-  const cancelTimelineLiveFollowForUserNavigationRef = useRef(
-    cancelTimelineLiveFollowForUserNavigation,
-  );
-  useEffect(() => {
-    cancelTimelineLiveFollowForUserNavigationRef.current =
-      cancelTimelineLiveFollowForUserNavigation;
-  }, [cancelTimelineLiveFollowForUserNavigation]);
   const getActiveTimelineTurnMetrics = useCallback(
     (list?: LegendListRef | null) => {
       const resolvedList = list ?? legendListRef.current;
@@ -3602,37 +3619,6 @@ function ChatViewContent(props: ChatViewProps) {
     setShowScrollToBottom(false);
     void legendListRef.current?.scrollToEnd?.({ animated });
   }, []);
-  useEffect(() => {
-    let removeListeners: (() => void) | null = null;
-    const frame = requestAnimationFrame(() => {
-      const scrollNode = legendListRef.current?.getScrollableNode();
-      if (!scrollNode) {
-        return;
-      }
-      const handleManualNavigation = () => {
-        cancelTimelineLiveFollowForUserNavigationRef.current();
-      };
-      scrollNode.addEventListener("wheel", handleManualNavigation, {
-        passive: true,
-      });
-      scrollNode.addEventListener("touchmove", handleManualNavigation, {
-        passive: true,
-      });
-      scrollNode.addEventListener("pointerdown", handleManualNavigation, {
-        passive: true,
-      });
-      removeListeners = () => {
-        scrollNode.removeEventListener("wheel", handleManualNavigation);
-        scrollNode.removeEventListener("touchmove", handleManualNavigation);
-        scrollNode.removeEventListener("pointerdown", handleManualNavigation);
-      };
-    });
-
-    return () => {
-      cancelAnimationFrame(frame);
-      removeListeners?.();
-    };
-  }, [activeThread?.id]);
 
   const onTimelineAnchorReady = useCallback((messageId: MessageId, anchorIndex: number) => {
     if (pendingTimelineAnchorRef.current === messageId) {
@@ -3753,14 +3739,25 @@ function ChatViewContent(props: ChatViewProps) {
     if (!activeThread?.id) {
       return;
     }
-    if (liveFollowUserScrollGenerationRef.current !== anchorUserScrollGenerationRef.current) {
+    if (
+      resolveTimelineFollowUpdateAction({
+        mode: timelineScrollModeRef.current,
+        userScrollGeneration: anchorUserScrollGenerationRef.current,
+        liveFollowUserScrollGeneration: liveFollowUserScrollGenerationRef.current,
+      }) === "free-scrolling"
+    ) {
       return;
     }
 
     let secondFrame: number | null = null;
     const frame = requestAnimationFrame(() => {
       secondFrame = requestAnimationFrame(() => {
-        if (liveFollowUserScrollGenerationRef.current !== anchorUserScrollGenerationRef.current) {
+        const followUpdateAction = resolveTimelineFollowUpdateAction({
+          mode: timelineScrollModeRef.current,
+          userScrollGeneration: anchorUserScrollGenerationRef.current,
+          liveFollowUserScrollGeneration: liveFollowUserScrollGenerationRef.current,
+        });
+        if (followUpdateAction === "free-scrolling") {
           return;
         }
         if (pendingTimelineAnchorRef.current !== null) {
@@ -3777,7 +3774,7 @@ function ChatViewContent(props: ChatViewProps) {
           return;
         }
 
-        if (timelineScrollModeRef.current === "anchoring-new-turn") {
+        if (followUpdateAction === "anchoring-new-turn") {
           const metrics = getActiveTimelineTurnMetrics(list);
           if (!metrics) {
             return;
@@ -3791,7 +3788,7 @@ function ChatViewContent(props: ChatViewProps) {
           return;
         }
 
-        if (timelineScrollModeRef.current !== "following-end") {
+        if (followUpdateAction !== "following-end") {
           return;
         }
         if (!timelineRealContentOverflowsViewport(list)) {
@@ -5775,6 +5772,7 @@ function ChatViewContent(props: ChatViewProps) {
             onRunProjectScript={runProjectScript}
             onAddProjectScript={saveProjectScript}
             onUpdateProjectScript={updateProjectScript}
+            onSyncProjectScripts={syncProjectScriptsFromFile}
             onDeleteProjectScript={deleteProjectScript}
           />
         </header>

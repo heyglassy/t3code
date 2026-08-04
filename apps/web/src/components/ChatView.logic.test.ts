@@ -16,6 +16,7 @@ import {
   buildExpiredTerminalContextToastCopy,
   buildLoadingThreadFromShell,
   buildThreadTurnInterruptInput,
+  cancelTimelineFollowForUserNavigation,
   createLocalDispatchSnapshot,
   deriveComposerSendState,
   dismissBranchMismatchForSession,
@@ -25,7 +26,9 @@ import {
   reconcileMountedTerminalThreadIds,
   reconcileRetainedMountedThreadIds,
   resolveThreadMetadataUpdateForNextTurn,
+  resolveTimelineFollowUpdateAction,
   resolveSendEnvMode,
+  shouldMarkThreadVisited,
   startNewThreadForProject,
   shouldShowBranchMismatchBanner,
   shouldWriteThreadErrorToCurrentServerThread,
@@ -86,6 +89,31 @@ const readySession = {
   updatedAt: "2026-03-29T00:00:10.000Z",
 };
 
+describe("shouldMarkThreadVisited", () => {
+  it("marks a thread visited when it has no current or older visit marker", () => {
+    expect(
+      shouldMarkThreadVisited({
+        threadUpdatedAt: "2026-03-29T00:00:10.000Z",
+        lastVisitedAt: "2026-03-29T00:00:09.999Z",
+      }),
+    ).toBe(true);
+    expect(shouldMarkThreadVisited({ threadUpdatedAt: "2026-03-29T00:00:10.000Z" })).toBe(true);
+  });
+
+  it("does not move a newer visit marker backwards", () => {
+    expect(
+      shouldMarkThreadVisited({
+        threadUpdatedAt: "2026-03-29T00:00:10.000Z",
+        lastVisitedAt: "2026-03-29T00:00:10.001Z",
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects an invalid thread timestamp", () => {
+    expect(shouldMarkThreadVisited({ threadUpdatedAt: "not-a-date" })).toBe(false);
+  });
+});
+
 describe("buildLoadingThreadFromShell", () => {
   it("preserves shell metadata and supplies empty detail collections", () => {
     const shell = {
@@ -128,6 +156,45 @@ describe("buildLoadingThreadFromShell", () => {
       activities: [],
       checkpoints: [],
     });
+  });
+});
+
+describe("timeline follow state", () => {
+  it("disengages live follow after deliberate user navigation", () => {
+    const initialState = {
+      mode: "following-end" as const,
+      userScrollGeneration: 4,
+      liveFollowUserScrollGeneration: 4,
+    };
+
+    const nextState = cancelTimelineFollowForUserNavigation(initialState);
+
+    expect(nextState).toEqual({
+      mode: "free-scrolling",
+      userScrollGeneration: 5,
+      liveFollowUserScrollGeneration: null,
+    });
+    expect(resolveTimelineFollowUpdateAction(nextState)).toBe("free-scrolling");
+  });
+
+  it("does not let a stale follow generation restore auto-follow", () => {
+    expect(
+      resolveTimelineFollowUpdateAction({
+        mode: "following-end",
+        userScrollGeneration: 5,
+        liveFollowUserScrollGeneration: 4,
+      }),
+    ).toBe("free-scrolling");
+  });
+
+  it("preserves anchoring while the current generation is still active", () => {
+    expect(
+      resolveTimelineFollowUpdateAction({
+        mode: "anchoring-new-turn",
+        userScrollGeneration: 5,
+        liveFollowUserScrollGeneration: 5,
+      }),
+    ).toBe("anchoring-new-turn");
   });
 });
 
