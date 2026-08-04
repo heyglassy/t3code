@@ -1,7 +1,37 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-08-03T00:00:00.000Z",
+  "generatedAt": "2026-08-04T02:20:49.000Z",
   "releases": [
+    {
+      "id": "stable-0.0.34-c1bce96c",
+      "channel": "stable",
+      "platform": "desktop",
+      "version": "0.0.34",
+      "commitSha": "c1bce96c2c09aa7f46159bbf31737623fdab41e6",
+      "branch": "main",
+      "buildId": "desktop-0.0.34",
+      "updateId": "stable-0.0.34"
+    },
+    {
+      "id": "nightly-0.0.33-nightly.20260803.4-8d381767",
+      "channel": "nightly",
+      "platform": "desktop",
+      "version": "0.0.33-nightly.20260803.4",
+      "commitSha": "8d381767487785016e54280759d5326f2dabb760",
+      "branch": "main",
+      "buildId": "desktop-0.0.33-nightly.20260803.4",
+      "updateId": "nightly-0.0.33-nightly.20260803.4"
+    },
+    {
+      "id": "nightly-0.0.32-nightly.20260803.3-034c0a6e",
+      "channel": "nightly",
+      "platform": "desktop",
+      "version": "0.0.32-nightly.20260803.3",
+      "commitSha": "034c0a6e3d9a630e897ef2180f67b85d0a49c8a2",
+      "branch": "main",
+      "buildId": "desktop-0.0.32-nightly.20260803.3",
+      "updateId": "nightly-0.0.32-nightly.20260803.3"
+    },
     {
       "id": "stable-0.0.31-8d381767",
       "channel": "stable",
@@ -11,6 +41,16 @@
       "branch": "main",
       "buildId": "desktop-0.0.31",
       "updateId": "stable-0.0.31"
+    },
+    {
+      "id": "nightly-0.0.31-nightly.20260803.2-27dacd2b",
+      "channel": "nightly",
+      "platform": "desktop",
+      "version": "0.0.31-nightly.20260803.2",
+      "commitSha": "27dacd2bcb91116c2803efc605df0bc2e4e7300b",
+      "branch": "main",
+      "buildId": "desktop-0.0.31-nightly.20260803.2",
+      "updateId": "nightly-0.0.31-nightly.20260803.2"
     }
   ]
 }
