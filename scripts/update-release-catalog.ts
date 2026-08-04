@@ -14,6 +14,7 @@ import { fromJsonStringPretty } from "@t3tools/shared/schemaJson";
 import {
   ReleaseCatalogSchema,
   ReleaseChannel,
+  ReleaseArchitecture,
   ReleaseEntrySchema,
   ReleasePlatform,
   type ReleaseCatalog,
@@ -34,6 +35,7 @@ export interface ReleaseCatalogEntryInput {
   readonly buildId: string;
   readonly updateId: string;
   readonly platform: ReleasePlatform;
+  readonly architecture: ReleaseArchitecture;
   readonly branch: string;
 }
 
@@ -109,6 +111,8 @@ export function appendReleaseToCatalog(
     id: releaseEntryId(input),
     channel: input.channel,
     platform: input.platform,
+    architecture: input.architecture,
+    schemaVersion: 1,
     version: input.version,
     commitSha: input.commitSha,
     branch: input.branch,
@@ -149,6 +153,7 @@ const command = Command.make(
     buildId: Flag.string("build-id"),
     updateId: Flag.string("update-id"),
     platform: Flag.choice("platform", ["desktop", "mobile", "server", "all"] as const),
+    architecture: Flag.choice("architecture", ["arm64", "x64", "ios", "android", "all"] as const),
     branch: Flag.string("branch"),
     generatedAt: Flag.string("generated-at"),
     root: Flag.string("root").pipe(Flag.optional),
@@ -161,6 +166,7 @@ const command = Command.make(
     buildId,
     updateId,
     platform,
+    architecture,
     branch,
     generatedAt,
     root,
@@ -173,6 +179,7 @@ const command = Command.make(
       buildId,
       updateId,
       platform,
+      architecture,
       branch,
       generatedAt,
       rootDir: Option.getOrUndefined(root),

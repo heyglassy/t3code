@@ -140,6 +140,7 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     ipcRenderer.invoke(IpcChannels.RELEASE_CATALOG_SET_SOURCE_CHANNEL, source),
   selectReleaseTarget: (targetId) =>
     ipcRenderer.invoke(IpcChannels.RELEASE_CATALOG_SELECT_TARGET_CHANNEL, targetId),
+  followReleaseChannel: () => ipcRenderer.invoke(IpcChannels.RELEASE_CATALOG_FOLLOW_CHANNEL),
   onUpdateState: (listener) => {
     const wrappedListener = (_event: Electron.IpcRendererEvent, state: unknown) => {
       if (typeof state !== "object" || state === null) return;

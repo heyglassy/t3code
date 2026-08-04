@@ -5,6 +5,7 @@ import {
   type DesktopUpdateChannel,
   type DesktopUpdateCheckResult,
   type DesktopUpdateState,
+  type ReleaseEntry,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
@@ -25,6 +26,13 @@ import * as DesktopObservability from "../app/DesktopObservability.ts";
 import * as DesktopState from "../app/DesktopState.ts";
 import * as ElectronUpdater from "../electron/ElectronUpdater.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
+import * as DesktopReleaseCatalog from "../releases/DesktopReleaseCatalog.ts";
+import {
+  resolveReleaseFeedUrl,
+  resolveReleaseUpdaterChannel,
+  validateDesktopReleaseTarget,
+  verifyReleaseUpdate,
+} from "../releases/releaseSelection.ts";
 import * as IpcChannels from "../ipc/channels.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import { normalizeDesktopUpdateReleaseNotes } from "./releaseNotes.ts";
@@ -50,6 +58,7 @@ type AppUpdateYmlConfig = typeof AppUpdateYmlConfig.Type;
 
 const UpdateInfo = Schema.Struct({
   version: Schema.String,
+  commitSha: Schema.optional(Schema.String),
   // Left unvalidated on purpose: a malformed release-notes payload must never
   // fail the decode and block the update state transition. The shape is
   // validated defensively in normalizeDesktopUpdateReleaseNotes.
@@ -137,6 +146,12 @@ export class DesktopUpdateUnexpectedActionError extends Schema.TaggedErrorClass<
   }
 }
 
+export interface DesktopReleaseSwitchResult {
+  readonly accepted: boolean;
+  readonly error: string | null;
+  readonly state: DesktopUpdateState;
+}
+
 export type DesktopUpdateConfigureError = never;
 
 export const DesktopUpdateSetChannelError = Schema.Union([
@@ -156,6 +171,10 @@ export class DesktopUpdates extends Context.Service<
     readonly setChannel: (
       channel: DesktopUpdateChannel,
     ) => Effect.Effect<DesktopUpdateState, DesktopUpdateSetChannelError>;
+    readonly selectReleaseTarget: (
+      entry: ReleaseEntry,
+    ) => Effect.Effect<DesktopReleaseSwitchResult>;
+    readonly followReleaseChannel: Effect.Effect<DesktopReleaseSwitchResult>;
     readonly check: (reason: string) => Effect.Effect<DesktopUpdateCheckResult>;
     readonly download: Effect.Effect<DesktopUpdateActionResult>;
     readonly install: Effect.Effect<DesktopUpdateActionResult>;
@@ -253,8 +272,15 @@ export const make = Effect.gen(function* () {
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
   const fileSystem = yield* FileSystem.FileSystem;
   const desktopSettings = yield* DesktopAppSettings.DesktopAppSettings;
+  const releaseCatalog = yield* DesktopReleaseCatalog.DesktopReleaseCatalog;
 
   const appUpdateYmlConfigRef = yield* Ref.make<Option.Option<AppUpdateYmlConfig>>(Option.none());
+  const configuredFeedRef = yield* Ref.make<Option.Option<ElectronUpdater.ElectronUpdaterFeedUrl>>(
+    Option.none(),
+  );
+  const baseFeedUrlRef = yield* Ref.make<Option.Option<string>>(Option.none());
+  const releaseTargetRef = yield* Ref.make<Option.Option<ReleaseEntry>>(Option.none());
+  const releaseTargetConfigurationErrorRef = yield* Ref.make<string | null>(null);
   const updateCheckInFlightRef = yield* Ref.make(false);
   const updateDownloadInFlightRef = yield* Ref.make(false);
   const updateInstallInFlightRef = yield* Ref.make(false);
@@ -297,6 +323,15 @@ export const make = Effect.gen(function* () {
 
   const hasUpdateFeedConfig = Ref.get(appUpdateYmlConfigRef).pipe(
     Effect.map((appUpdateYmlConfig) => Option.isSome(appUpdateYmlConfig) || config.mockUpdates),
+  );
+
+  const resolveConfiguredFeedUrl = Ref.get(appUpdateYmlConfigRef).pipe(
+    Effect.map((config) => {
+      if (Option.isNone(config) || config.value.provider !== "generic")
+        return Option.none<string>();
+      const url = config.value.url?.trim();
+      return url && url.length > 0 ? Option.some(url) : Option.none<string>();
+    }),
   );
 
   const resolveDisabledReason = Effect.gen(function* () {
@@ -344,12 +379,50 @@ export const make = Effect.gen(function* () {
     });
   });
 
+  const applyReleaseTargetFeed = Effect.fn("desktop.updates.applyReleaseTargetFeed")(function* (
+    entry: ReleaseEntry,
+  ) {
+    const validation = validateDesktopReleaseTarget(entry, {
+      platform: environment.platform,
+      appArch: environment.runtimeInfo.appArch,
+    });
+    if (!validation.accepted) {
+      return { accepted: false, error: validation.error } as const;
+    }
+
+    const configuredFeedUrl = yield* Ref.get(baseFeedUrlRef);
+    const channelFeedUrl = Option.isSome(configuredFeedUrl) ? configuredFeedUrl.value : null;
+    const feedUrl = resolveReleaseFeedUrl({ entry, channelFeedUrl });
+    if (!feedUrl) {
+      return {
+        accepted: false,
+        error: `Release ${entry.version} has no version-addressable update feed for this installation.`,
+      } as const;
+    }
+
+    yield* electronUpdater.setFeedURL({ provider: "generic", url: feedUrl });
+    const updaterChannel = resolveReleaseUpdaterChannel(entry);
+    yield* electronUpdater.setChannel(updaterChannel);
+    yield* electronUpdater.setAllowPrerelease(updaterChannel === "nightly");
+    yield* electronUpdater.setAllowDowngrade(true);
+    yield* electronUpdater.setFullChangelog(updaterChannel === "nightly");
+    yield* Ref.set(releaseTargetRef, Option.some(entry));
+    yield* Ref.set(releaseTargetConfigurationErrorRef, null);
+    yield* logUpdaterInfo("using exact release feed", {
+      version: entry.version,
+      commitSha: entry.commitSha,
+      feedUrl,
+    });
+    return { accepted: true, error: null } as const;
+  });
+
   const shouldEnableAutoUpdates = resolveDisabledReason.pipe(Effect.map(Option.isNone));
 
   const checkForUpdates = Effect.fn("desktop.updates.checkForUpdates")(function* (reason: string) {
     yield* Effect.annotateCurrentSpan({ reason });
     if (yield* Ref.get(desktopState.quitting)) return false;
     if (!(yield* Ref.get(updaterConfiguredRef))) return false;
+    if ((yield* Ref.get(releaseTargetConfigurationErrorRef)) !== null) return false;
     if (yield* Ref.get(updateCheckInFlightRef)) return false;
 
     const state = yield* Ref.get(updateStateRef);
@@ -562,6 +635,49 @@ export const make = Effect.gen(function* () {
       Effect.flatMap(
         Effect.fn("desktop.updates.applyUpdateAvailable")(function* (info) {
           const state = yield* Ref.get(updateStateRef);
+          const selectedRelease = yield* Ref.get(releaseTargetRef);
+          if (Option.isSome(selectedRelease)) {
+            const verification = verifyReleaseUpdate(selectedRelease.value, info);
+            if (!verification.accepted) {
+              yield* updateState((current) => ({
+                ...current,
+                status: "error",
+                availableVersion: null,
+                downloadedVersion: null,
+                downloadPercent: null,
+                message: verification.error,
+                errorContext: "download",
+                canRetry: false,
+              }));
+              yield* logUpdaterError(verification.error ?? "Release verification failed", {
+                version: info.version,
+                expectedVersion: selectedRelease.value.version,
+              });
+              return;
+            }
+
+            const checkedAt = yield* currentIsoTimestamp;
+            const releaseNotes = normalizeDesktopUpdateReleaseNotes(
+              info.releaseNotes,
+              info.version,
+            );
+            yield* setState(
+              reduceDesktopUpdateStateOnUpdateAvailable(
+                state,
+                info.version,
+                checkedAt,
+                releaseNotes,
+              ),
+            );
+            yield* Ref.set(lastLoggedDownloadMilestoneRef, -1);
+            yield* logUpdaterInfo("exact release available", {
+              version: info.version,
+              commitSha: selectedRelease.value.commitSha,
+            });
+            yield* downloadAvailableUpdate;
+            return;
+          }
+
           if (resolveDefaultDesktopUpdateChannel(info.version) !== state.channel) {
             yield* logUpdaterInfo("ignoring update that does not match selected channel", {
               version: info.version,
@@ -686,6 +802,30 @@ export const make = Effect.gen(function* () {
       Effect.flatMap(
         Effect.fn("desktop.updates.applyUpdateDownloaded")(function* (info) {
           const state = yield* Ref.get(updateStateRef);
+          const selectedRelease = yield* Ref.get(releaseTargetRef);
+          if (Option.isSome(selectedRelease)) {
+            const verification = verifyReleaseUpdate(selectedRelease.value, info);
+            if (!verification.accepted) {
+              yield* updateState((current) => ({
+                ...current,
+                status: "error",
+                availableVersion: null,
+                downloadedVersion: null,
+                downloadPercent: null,
+                message: verification.error,
+                errorContext: "download",
+                canRetry: false,
+              }));
+              yield* logUpdaterError(
+                verification.error ?? "Downloaded release verification failed",
+                {
+                  version: info.version,
+                  expectedVersion: selectedRelease.value.version,
+                },
+              );
+              return;
+            }
+          }
           yield* setState(reduceDesktopUpdateStateOnDownloadComplete(state, info.version));
           yield* logUpdaterInfo("update downloaded", { version: info.version });
         }),
@@ -715,12 +855,21 @@ export const make = Effect.gen(function* () {
 
       const appUpdateYmlConfig = yield* readAppUpdateYml;
       yield* Ref.set(appUpdateYmlConfigRef, appUpdateYmlConfig);
+      yield* Ref.set(
+        configuredFeedRef,
+        Option.map(appUpdateYmlConfig, (value) => value as ElectronUpdater.ElectronUpdaterFeedUrl),
+      );
+      yield* Ref.set(baseFeedUrlRef, yield* resolveConfiguredFeedUrl);
 
       if (config.mockUpdates) {
-        yield* electronUpdater.setFeedURL({
+        const mockFeedUrl = `http://localhost:${config.mockUpdateServerPort}`;
+        yield* Ref.set(baseFeedUrlRef, Option.some(mockFeedUrl));
+        const mockFeed = {
           provider: "generic",
-          url: `http://localhost:${config.mockUpdateServerPort}`,
-        } as ElectronUpdater.ElectronUpdaterFeedUrl);
+          url: mockFeedUrl,
+        } as ElectronUpdater.ElectronUpdaterFeedUrl;
+        yield* Ref.set(configuredFeedRef, Option.some(mockFeed));
+        yield* electronUpdater.setFeedURL(mockFeed);
       }
 
       const settings = yield* desktopSettings.get;
@@ -767,6 +916,27 @@ export const make = Effect.gen(function* () {
         runEffect(handleUpdateDownloaded(info));
       });
 
+      const persistedReleaseState = yield* releaseCatalog.get;
+      const persistedRelease = persistedReleaseState.catalog?.releases.find(
+        (release) => release.id === persistedReleaseState.selectedTargetId,
+      );
+      if (persistedRelease) {
+        const preparation = yield* applyReleaseTargetFeed(persistedRelease);
+        if (!preparation.accepted) {
+          yield* Ref.set(releaseTargetConfigurationErrorRef, preparation.error);
+          yield* updateState((current) => ({
+            ...current,
+            status: "error",
+            message: preparation.error,
+            errorContext: "check",
+            canRetry: false,
+          }));
+          yield* logUpdaterError(preparation.error ?? "Could not configure selected release", {
+            version: persistedRelease.version,
+          });
+        }
+      }
+
       yield* startUpdatePollers;
     }).pipe(Effect.withSpan("desktop.updates.configure")),
     setChannel: Effect.fn("desktop.updates.setChannel")(function* (
@@ -808,6 +978,61 @@ export const make = Effect.gen(function* () {
         Effect.ensuring(electronUpdater.setAllowDowngrade(allowDowngrade).pipe(Effect.ignore)),
       );
       return yield* Ref.get(updateStateRef);
+    }),
+    selectReleaseTarget: Effect.fn("desktop.updates.selectReleaseTarget")(function* (entry) {
+      const activeAction = yield* activeUpdateAction;
+      if (Option.isSome(activeAction)) {
+        const message = `Cannot switch to release ${entry.version} while an update ${activeAction.value} action is in progress.`;
+        yield* Ref.set(releaseTargetConfigurationErrorRef, message);
+        yield* updateState((current) => ({
+          ...current,
+          status: "error",
+          message,
+          errorContext: activeAction.value === "check" ? "check" : activeAction.value,
+          canRetry: false,
+        }));
+        return { accepted: false, error: message, state: yield* Ref.get(updateStateRef) };
+      }
+
+      const preparation = yield* applyReleaseTargetFeed(entry);
+      if (!preparation.accepted) {
+        yield* Ref.set(releaseTargetConfigurationErrorRef, preparation.error);
+        yield* updateState((current) => ({
+          ...current,
+          status: "error",
+          message: preparation.error,
+          errorContext: "check",
+          canRetry: false,
+        }));
+        return { accepted: false, error: preparation.error, state: yield* Ref.get(updateStateRef) };
+      }
+
+      yield* checkForUpdates("release-selection");
+      return { accepted: true, error: null, state: yield* Ref.get(updateStateRef) };
+    }),
+    followReleaseChannel: Effect.gen(function* () {
+      const activeAction = yield* activeUpdateAction;
+      if (Option.isSome(activeAction)) {
+        const message = `Cannot follow the update channel while an update ${activeAction.value} action is in progress.`;
+        yield* updateState((current) => ({
+          ...current,
+          status: "error",
+          message,
+          errorContext: activeAction.value === "check" ? "check" : activeAction.value,
+          canRetry: false,
+        }));
+        return { accepted: false, error: message, state: yield* Ref.get(updateStateRef) };
+      }
+      yield* Ref.set(releaseTargetRef, Option.none());
+      yield* Ref.set(releaseTargetConfigurationErrorRef, null);
+      const configuredFeed = yield* Ref.get(configuredFeedRef);
+      if (Option.isSome(configuredFeed)) {
+        yield* electronUpdater.setFeedURL(configuredFeed.value);
+      }
+      const state = yield* Ref.get(updateStateRef);
+      yield* applyAutoUpdaterChannel(state.channel);
+      yield* checkForUpdates("follow-channel");
+      return { accepted: true, error: null, state: yield* Ref.get(updateStateRef) };
     }),
     check: Effect.fn("desktop.updates.check")(function* (reason: string) {
       yield* Effect.annotateCurrentSpan({ reason });

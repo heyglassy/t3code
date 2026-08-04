@@ -13,7 +13,7 @@ import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest";
 
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
-import { selectReleaseTarget } from "./releaseSelection.ts";
+import { selectReleaseTarget, validateDesktopReleaseTarget } from "./releaseSelection.ts";
 
 export const DEFAULT_RELEASE_CATALOG_SOURCE =
   "https://raw.githubusercontent.com/heyglassy/t3code/main/release-catalog.json";
@@ -49,6 +49,7 @@ export class DesktopReleaseCatalog extends Context.Service<
     readonly get: Effect.Effect<DesktopReleaseCatalogState>;
     readonly setSource: (source: string) => Effect.Effect<DesktopReleaseCatalogState>;
     readonly selectTarget: (targetId: string) => Effect.Effect<DesktopReleaseSelectionResult>;
+    readonly clearTarget: Effect.Effect<DesktopReleaseCatalogState>;
   }
 >()("@t3tools/desktop/releases/DesktopReleaseCatalog") {}
 
@@ -138,16 +139,23 @@ export const layer = Layer.effect(
         Effect.tapError((cause) => Effect.logWarning(cause.message, { cause })),
         Effect.orElseSucceed(() => null),
       );
+      const selectedTargetId = preferences.selectedTargetId ?? null;
+      const selectedEntry = catalog?.releases.find((release) => release.id === selectedTargetId);
+      const compatibilityError = selectedEntry
+        ? validateDesktopReleaseTarget(selectedEntry, {
+            platform: environment.platform,
+            appArch: environment.runtimeInfo.appArch,
+          }).error
+        : null;
       return {
         source,
         catalog,
-        selectedTargetId: preferences.selectedTargetId ?? null,
-        restartRequired:
-          preferences.selectedTargetId !== undefined && preferences.selectedTargetId !== null,
+        selectedTargetId,
+        restartRequired: selectedTargetId !== null,
         error:
           catalog === null
             ? "Could not load the release catalog from the configured source."
-            : null,
+            : compatibilityError,
       } satisfies DesktopReleaseCatalogState;
     });
 
@@ -169,7 +177,15 @@ export const layer = Layer.effect(
           const preferences = yield* readPreferences(fileSystem, environment);
           const state = yield* readState(preferences);
           const selection = selectReleaseTarget(state.catalog, targetId, state.selectedTargetId);
-          if (selection.accepted) {
+          const entry = state.catalog?.releases.find((release) => release.id === targetId);
+          const compatibility = entry
+            ? validateDesktopReleaseTarget(entry, {
+                platform: environment.platform,
+                appArch: environment.runtimeInfo.appArch,
+              })
+            : { accepted: false, error: null };
+          const accepted = selection.accepted && compatibility.accepted;
+          if (accepted) {
             yield* writePreferences(fileSystem, environment, {
               ...preferences,
               selectedTargetId: selection.selectedTargetId,
@@ -177,18 +193,27 @@ export const layer = Layer.effect(
           }
           const nextState = {
             ...state,
-            selectedTargetId: selection.selectedTargetId,
-            restartRequired: selection.restartRequired,
-            error: selection.accepted
+            selectedTargetId: accepted ? selection.selectedTargetId : state.selectedTargetId,
+            restartRequired: accepted ? selection.restartRequired : state.restartRequired,
+            error: accepted
               ? null
-              : `Release target '${targetId}' was not found in the catalog.`,
+              : (compatibility.error ??
+                `Release target '${targetId}' was not found in the catalog.`),
           } satisfies DesktopReleaseCatalogState;
           return {
-            accepted: selection.accepted,
-            restartRequired: selection.restartRequired,
+            accepted,
+            restartRequired: accepted ? selection.restartRequired : state.restartRequired,
             state: nextState,
           } satisfies DesktopReleaseSelectionResult;
         }),
+      clearTarget: Effect.gen(function* () {
+        const preferences = yield* readPreferences(fileSystem, environment);
+        yield* writePreferences(fileSystem, environment, {
+          ...preferences,
+          selectedTargetId: null,
+        });
+        return yield* readState({ ...preferences, selectedTargetId: null });
+      }),
     });
   }),
 );

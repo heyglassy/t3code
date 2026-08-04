@@ -29,6 +29,8 @@ const baseCatalog: ReleaseCatalog = {
       platform: "desktop",
       version: "0.0.31",
       commitSha: "8d381767487785016e54280759d5326f2dabb760",
+      schemaVersion: 1,
+      architecture: "arm64",
       branch: "main",
       buildId: "desktop-0.0.31",
       updateId: "stable-0.0.31",
@@ -41,6 +43,7 @@ const nightlyInput = {
   commitSha: "034c0a6e3d9a630e897ef2180f67b85d0a49c8a2",
   channel: "nightly" as const,
   platform: "desktop" as const,
+  architecture: "arm64" as const,
   branch: "main",
   buildId: "desktop-0.0.32-nightly.20260803.3",
   updateId: "nightly-0.0.32-nightly.20260803.3",
@@ -57,6 +60,7 @@ describe("appendReleaseToCatalog", () => {
     );
     assert.deepStrictEqual(catalog.releases[0], {
       id: releaseEntryId(nightlyInput),
+      schemaVersion: 1,
       ...nightlyInput,
     });
     decodeCatalog(catalog);

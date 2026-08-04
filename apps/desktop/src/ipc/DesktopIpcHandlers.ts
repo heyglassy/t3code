@@ -31,6 +31,7 @@ import {
   setUpdateChannel,
 } from "./methods/updates.ts";
 import {
+  followReleaseChannel,
   getReleaseCatalog,
   selectReleaseTarget,
   setReleaseCatalogSource,
@@ -96,6 +97,7 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handle(getReleaseCatalog);
   yield* ipc.handle(setReleaseCatalogSource);
   yield* ipc.handle(selectReleaseTarget);
+  yield* ipc.handle(followReleaseChannel);
   for (const previewMethod of PreviewIpc.methods) {
     yield* ipc.handle(previewMethod);
   }

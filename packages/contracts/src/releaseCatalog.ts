@@ -20,6 +20,8 @@ export const ReleaseEntrySchema = Schema.Struct({
   platform: ReleasePlatform,
   version: TrimmedNonEmptyString,
   commitSha: TrimmedNonEmptyString,
+  /** Desktop data compatibility version for exact-version installs. */
+  schemaVersion: Schema.optionalKey(PositiveInt),
   branch: OptionalTrimmedNonEmptyString,
   prNumber: Schema.optionalKey(PositiveInt),
   prTitle: OptionalTrimmedNonEmptyString,

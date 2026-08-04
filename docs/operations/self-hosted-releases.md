@@ -43,7 +43,7 @@ The Tigris key needs read and write access to `cgt3code/desktop`. Credentials ar
 
 Run **Glassycode Desktop Release** from GitHub Actions.
 
-- `build` creates an Apple Silicon application, signs and notarizes it, uploads immutable artifacts to S3, archives its update manifest under `releases/<version>/`, and points the selected channel at it.
+- `build` creates an Apple Silicon application, signs and notarizes it, uploads immutable artifacts to S3 (including the version-addressable `releases/<version>/` directory), archives its update manifest under `releases/<version>/`, and points the selected channel at it.
 - `promote` copies an archived manifest back to the mutable channel without rebuilding. This is the rollback/version-swap operation.
 - `production` uses `latest-mac.yml`.
 - `candidate` uses `nightly-mac.yml` internally. The desktop settings UI presents these as Production and Candidate.
@@ -67,6 +67,7 @@ node scripts/update-release-catalog.ts \
   --build-id desktop-1.2.3 \
   --update-id stable-1.2.3 \
   --platform desktop \
+  --architecture arm64 \
   --branch main \
   --generated-at 2026-08-04T02:20:49.000Z
 ```
