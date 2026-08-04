@@ -30,7 +30,7 @@ on:
         type: string
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: glassycode-desktop-${{ inputs.channel }}
@@ -171,6 +171,60 @@ jobs:
           aws s3 cp "$manifest_path" "$root/$MANIFEST" \
             --endpoint-url "$AWS_ENDPOINT_URL_S3" \
             --cache-control "no-cache"
+
+      - name: Publish release catalog
+        if: ${{ success() && inputs.action == 'build' }}
+        env:
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+          RELEASE_COMMIT_SHA: ${{ github.sha }}
+          RELEASE_BRANCH: ${{ inputs.ref }}
+          RELEASE_CHANNEL: ${{ inputs.channel }}
+        run: |
+          set -euo pipefail
+
+          if [ "$RELEASE_CHANNEL" = candidate ]; then
+            catalog_channel="nightly"
+          else
+            catalog_channel="stable"
+          fi
+          catalog_generated_at="$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
+          catalog_branch="${RELEASE_BRANCH#refs/heads/}"
+          build_id="desktop-$RELEASE_VERSION"
+          update_id="$catalog_channel-$RELEASE_VERSION"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          for attempt in 1 2 3 4 5; do
+            git fetch origin main
+            git reset --hard origin/main
+
+            node scripts/update-release-catalog.ts \
+              --version "$RELEASE_VERSION" \
+              --commit-sha "$RELEASE_COMMIT_SHA" \
+              --channel "$catalog_channel" \
+              --build-id "$build_id" \
+              --update-id "$update_id" \
+              --platform desktop \
+              --branch "$catalog_branch" \
+              --generated-at "$catalog_generated_at"
+
+            if git diff --quiet -- release-catalog.json; then
+              echo "Release catalog already contains $RELEASE_VERSION ($catalog_channel)."
+              exit 0
+            fi
+
+            git add release-catalog.json
+            git commit -m "chore(releases): publish desktop release catalog"
+            if git push origin HEAD:main; then
+              echo "Published $RELEASE_VERSION to the release catalog."
+              exit 0
+            fi
+            echo "Catalog push raced with another update; retrying (attempt $((attempt + 1))/5)."
+          done
+
+          echo "Could not publish the release catalog after 5 attempts." >&2
+          exit 1
 
   promote:
     name: Promote existing desktop release

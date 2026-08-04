@@ -48,6 +48,29 @@ Run **Glassycode Desktop Release** from GitHub Actions.
 - `production` uses `latest-mac.yml`.
 - `candidate` uses `nightly-mac.yml` internally. The desktop settings UI presents these as Production and Candidate.
 
+After a successful `build`, the workflow automatically appends the shipped
+desktop version to `release-catalog.json` on `main`. The catalog entry records
+the built version, source commit, source branch, channel, desktop platform,
+build ID, and update ID. The update is schema-validated, deduplicated by its
+derived ID, sorted newest-first, and committed with a fetch/retry loop so
+parallel releases do not overwrite one another. A `promote` action only moves
+the mutable update-channel manifest and does not create a new catalog entry.
+
+The catalog publisher can also be run locally for a verified backfill or
+repair:
+
+```bash
+node scripts/update-release-catalog.ts \
+  --version 1.2.3 \
+  --commit-sha <full-commit-sha> \
+  --channel stable \
+  --build-id desktop-1.2.3 \
+  --update-id stable-1.2.3 \
+  --platform desktop \
+  --branch main \
+  --generated-at 2026-08-04T02:20:49.000Z
+```
+
 The `desktop` prefix must be readable over HTTPS so Electron can fetch its manifests and artifacts. Give immutable artifacts a long cache lifetime and leave channel manifests uncached; the workflow sets appropriate object cache headers.
 
 ## Mobile releases
